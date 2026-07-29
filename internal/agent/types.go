@@ -16,3 +16,13 @@ type State struct {
 	MaxRounds int       //ReAct最大轮次
 	Round     int       //当前轮次
 }
+
+func NewState(maxrounds int) *State {
+	return &State{
+		Messages: []Message{
+			{Role: "system", Content: "你是一个智能NPC，请用角色的方式与玩家对话。"},
+		},
+		MaxRounds: maxrounds,
+		Round:     0,
+	}
+}
