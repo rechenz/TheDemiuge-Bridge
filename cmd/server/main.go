@@ -10,7 +10,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/config"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/handler"
 )
 
 func Quit(h *server.Hertz) {
@@ -31,10 +30,6 @@ func main() {
 		server.WithHostPorts(config.Load().Addr),
 		server.WithExitWaitTime(5*time.Second),
 	)
-
-	h.GET("/health", handler.Health)
-	h.POST("/api/chat", handler.Chat)
-	h.POST("/api/new-session", handler.NewSession)
 
 	go Quit(h)
 
