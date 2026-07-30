@@ -61,6 +61,18 @@ type chatResponse struct {
 	Reply     string `json:"reply"`
 }
 
+// toLLMMessages 将 agent.Message 转为 llm.ChatMessage
+func toLLMMessages(msgs []agent.Message) []llm.ChatMessage {
+	result := make([]llm.ChatMessage, len(msgs))
+	for i, m := range msgs {
+		result[i] = llm.ChatMessage{
+			Role:    m.Role,
+			Content: m.Content,
+		}
+	}
+	return result
+}
+
 // ── 路由处理器 ──
 
 // Chat — POST /api/chat
@@ -104,15 +116,11 @@ func Chat(c context.Context, ctx *app.RequestContext) {
 	// 7. 判断 stream 还是非 stream
 	if req.Stream {
 		// 流式：SSE
-		// TODO: 设置 SSE 相关 header (Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive)
 		ctx.Response.Header.Set("Content-Type", "text/event-stream")
 		ctx.Response.Header.Set("Cache-Control", "no-cache")
 		ctx.Response.Header.Set("Connection", "keep-alive")
 		ctx.Response.Header.Set("X-Accel-Buffering", "no")
-		// TODO: 调 llm.ChatStream，在 onToken 里写 SSE data + flush
-		// TODO: 返回完整回复后追加到 state.Messages
-		// TODO: 写 [DONE] 结束标记
-		fullReply, err := llm.ChatStream(c, cfg.DeepSeekKey, cfg.ModelName, state.Messages, cfg.MaxTokens, cfg.Temperature, func(token string) {
+		fullReply, err := llm.ChatStream(c, cfg.DeepSeekKey, cfg.ModelName, toLLMMessages(state.Messages), cfg.MaxTokens, cfg.Temperature, func(token string) {
 			data, _ := json.Marshal(chatResponse{
 				SessionID: req.SessionID,
 				Reply:     token,
@@ -135,10 +143,7 @@ func Chat(c context.Context, ctx *app.RequestContext) {
 
 	} else {
 		// 非流式：等完整结果返回 JSON
-		// TODO: 调 llm.ChatStream, onToken 传 nil
-		// TODO: 追加 assistant 回复到 state.Messages
-		// TODO: ctx.JSON(200, chatResponse{...})
-		fullReply, err := llm.ChatStream(c, cfg.DeepSeekKey, cfg.ModelName, state.Messages, cfg.MaxTokens, cfg.Temperature, nil)
+		fullReply, err := llm.ChatStream(c, cfg.DeepSeekKey, cfg.ModelName, toLLMMessages(state.Messages), cfg.MaxTokens, cfg.Temperature, nil)
 
 		if err != nil {
 			ctx.JSON(500, utils.H{"error": err.Error()})

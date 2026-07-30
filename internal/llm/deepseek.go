@@ -9,19 +9,17 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/rechenz/TheDemiuge-Bridge/internal/agent"
 )
 
-// 发给 DeepSeek API 的请求结构
-type chatMessage struct {
+// ChatMessage 表示一条对话消息
+type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
 type chatRequest struct {
 	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
+	Messages    []ChatMessage `json:"messages"`
 	Stream      bool          `json:"stream"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	Temperature float32       `json:"temperature,omitempty"`
@@ -36,16 +34,7 @@ type chatStreamChunk struct {
 	} `json:"choices"`
 }
 
-func ChatStream(ctx context.Context, apiKey, model string, messages []agent.Message, maxTokens int, temperature float32, onToken func(string)) (string, error) {
-	// ── 1. 把 agent.Message 转成 chatMessage ──
-	// TODO: 遍历 messages，逐个转换
-	var cM []chatMessage
-	for _, v := range messages {
-		cM = append(cM, chatMessage{
-			Role:    v.Role,
-			Content: v.Content,
-		})
-	}
+func ChatStream(ctx context.Context, apiKey, model string, messages []ChatMessage, maxTokens int, temperature float32, onToken func(string)) (string, error) {
 	// ── 2. 构建请求体 ──
 	// TODO: 创建 chatRequest，Stream 设为 true
 	var cR chatRequest
@@ -53,7 +42,7 @@ func ChatStream(ctx context.Context, apiKey, model string, messages []agent.Mess
 	cR.Model = model
 	cR.Temperature = temperature
 	cR.MaxTokens = maxTokens
-	cR.Messages = cM
+	cR.Messages = messages
 	// ── 3. 序列化 JSON ──
 	// TODO: json.Marshal
 	js, err := json.Marshal(cR)
