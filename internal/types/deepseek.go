@@ -1,6 +1,7 @@
-// Package types 定义了 DeepSeek Chat Completions API 的完整类型体系,
-// 覆盖官方文档 https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/
-// 的全部请求参数、非流式响应、流式响应(SSE)、token 用量与对数概率结构。
+// Package types 定义了 OpenAI 兼容 Chat Completions API 的完整类型体系,
+// 以 DeepSeek 官方文档 https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/ 为基准,
+// 覆盖请求参数、非流式响应、流式响应(SSE)、token 用量与对数概率结构。
+// 类型命名保持厂商中立,切换 OpenAI / 通义千问 / Moonshot 等兼容模型无需改动。
 package types
 
 import (
@@ -138,9 +139,9 @@ func (s StopSequence) MarshalJSON() ([]byte, error) {
 
 // ── 请求体 ─────────────────────────────────────────────────────────────────
 
-// DeepseekChatRequest 对应 POST /chat/completions 的请求体。
+// ChatRequest 对应 POST /chat/completions 的请求体。
 // 可选字段均带 omitempty,nil 值不会发送,由服务端使用文档默认值。
-type DeepseekChatRequest struct {
+type ChatRequest struct {
 	// Messages 对话的消息列表,至少 1 条(必填)
 	Messages []Message `json:"messages"`
 	// Model 使用的模型 ID:deepseek-v4-flash 或 deepseek-v4-pro(必填)
@@ -186,8 +187,8 @@ type DeepseekChatRequest struct {
 
 // ── 非流式响应 ─────────────────────────────────────────────────────────────
 
-// DeepseekChatResponse 对应非流式 200 响应体。
-type DeepseekChatResponse struct {
+// ChatResponse 对应非流式 200 响应体。
+type ChatResponse struct {
 	// ID 该对话的唯一标识符
 	ID string `json:"id"`
 	// Object 固定为 chat.completion
@@ -197,15 +198,15 @@ type DeepseekChatResponse struct {
 	// Model 生成该 completion 的模型名
 	Model string `json:"model"`
 	// Choices 模型生成的 completion 的选择列表
-	Choices []DeepseekChatChoice `json:"choices"`
+	Choices []ChatChoice `json:"choices"`
 	// SystemFingerprint 表示模型运行的后端配置指纹
 	SystemFingerprint string `json:"system_fingerprint"`
 	// Usage 该对话补全请求的用量信息
 	Usage Usage `json:"usage"`
 }
 
-// DeepseekChatChoice 单个 completion 选择。
-type DeepseekChatChoice struct {
+// ChatChoice 单个 completion 选择。
+type ChatChoice struct {
 	// Index 该 completion 在选择列表中的索引
 	Index int `json:"index"`
 	// FinishReason 模型停止生成 token 的原因
@@ -338,9 +339,9 @@ type TopLogprob struct {
 
 // ── 错误响应 ──────────────────────────────────────────────────────────────
 
-// DeepSeekAPIError 对应 API 错误响应体 {"error": {...}}。
+// APIError 对应 API 错误响应体 {"error": {...}}。
 // 便于 Agent 层根据 message / type / code 判断错误并决定重试或降级策略。
-type DeepSeekAPIError struct {
+type APIError struct {
 	Err ErrorDetail `json:"error"`
 }
 
@@ -355,6 +356,6 @@ type ErrorDetail struct {
 }
 
 // Error 实现 error 接口。
-func (e *DeepSeekAPIError) Error() string {
+func (e *APIError) Error() string {
 	return fmt.Sprintf("DeepSeek API 错误(type=%s, code=%s): %s", e.Err.Type, e.Err.Code, e.Err.Message)
 }

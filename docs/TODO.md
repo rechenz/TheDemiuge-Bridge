@@ -18,8 +18,8 @@
 ### 📌 待办
 
 - [ ] LLM 客户端重写 `internal/llm/`（旧 deepseek.go/completion.go 已删）
-  - [ ] **回调式两入口**：`Chat(ctx, req) (*ChatResponse, error)` 非流式 + `ChatStream(ctx, req, onToken)` 流式
-  - [ ] tool_calls 增量在客户端内部拼接，流结束随响应返回，不混在 Token 里
+  - [X] **回调式两入口**：`Chat(ctx, req) (*ChatResponse, error)` 非流式 + `ChatStream(ctx, req, onToken)` 流式
+  - [X] tool_calls 增量在客户端内部拼接，流结束随响应返回，不混在 Token 里
   - [ ] `provider.go` — Provider 接口抽象
   - [ ] 错误处理：DeepSeekAPIError → 重试/降级策略
 - [ ] Agent 层重建 `internal/agent/`（已删，需重建）

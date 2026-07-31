@@ -1,4 +1,4 @@
-package llm
+package deepseek
 
 import (
 	"bufio"
@@ -18,7 +18,7 @@ const chatCompletionsEndpoint = "https://api.deepseek.com/chat/completions"
 
 // sendChat 向 DeepSeek 发送非流式 Chat Completions 请求并解析响应。
 // 供非流式入口 Chat 使用。
-func sendChat(ctx context.Context, req *types.DeepseekChatRequest, apiKey string) (*types.DeepseekChatResponse, error) {
+func sendChat(ctx context.Context, req *types.ChatRequest, apiKey string) (*types.ChatResponse, error) {
 	resp, err := doRequest(ctx, req, apiKey)
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func sendChat(ctx context.Context, req *types.DeepseekChatRequest, apiKey string
 		return nil, parseAPIError(resp.StatusCode, respBody)
 	}
 
-	var chatResp types.DeepseekChatResponse
+	var chatResp types.ChatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
 		return nil, fmt.Errorf("解析 DeepSeek 响应失败: %w", err)
 	}
@@ -44,8 +44,8 @@ func sendChat(ctx context.Context, req *types.DeepseekChatRequest, apiKey string
 // sendChatStream 向 DeepSeek 发送流式 Chat Completions 请求,
 // 逐 chunk 回调 onChunk;流结束时返回聚合的完整响应,
 // 错误通过返回值传递。回调返回错误时立即中止并返回该错误。
-func sendChatStream(ctx context.Context, req *types.DeepseekChatRequest, apiKey string,
-	onChunk func(*types.ChatCompletionStreamChunk) error) (*types.DeepseekChatResponse, error) {
+func sendChatStream(ctx context.Context, req *types.ChatRequest, apiKey string,
+	onChunk func(*types.ChatCompletionStreamChunk) error) (*types.ChatResponse, error) {
 
 	resp, err := doRequest(ctx, req, apiKey)
 	if err != nil {
@@ -62,7 +62,7 @@ func sendChatStream(ctx context.Context, req *types.DeepseekChatRequest, apiKey 
 	}
 
 	// 聚合结果
-	aggregated := &types.DeepseekChatResponse{}
+	aggregated := &types.ChatResponse{}
 	var content, reasoning strings.Builder
 	var toolCalls []*types.ToolCall // 流式 tool_calls 按 index 归位拼接
 
@@ -129,7 +129,7 @@ func sendChatStream(ctx context.Context, req *types.DeepseekChatRequest, apiKey 
 // doRequest 构造并发送 DeepSeek Chat Completions 请求,
 // 返回原始 HTTP 响应(调用方负责关闭 resp.Body)。
 // 供非流式/流式共用。
-func doRequest(ctx context.Context, req *types.DeepseekChatRequest, apiKey string) (*http.Response, error) {
+func doRequest(ctx context.Context, req *types.ChatRequest, apiKey string) (*http.Response, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("序列化 DeepSeek 请求体失败: %w", err)
@@ -149,10 +149,10 @@ func doRequest(ctx context.Context, req *types.DeepseekChatRequest, apiKey strin
 	return resp, nil
 }
 
-// parseAPIError 将 DeepSeek 非 2xx 响应体解析为 *types.DeepSeekAPIError;
+// parseAPIError 将 DeepSeek 非 2xx 响应体解析为 *types.APIError;
 // 解析失败时返回含状态码的普通错误。
 func parseAPIError(statusCode int, respBody []byte) error {
-	var apiErr types.DeepSeekAPIError
+	var apiErr types.APIError
 	if err := json.Unmarshal(respBody, &apiErr); err != nil {
 		return fmt.Errorf("DeepSeek API 返回 HTTP %d,响应体: %s", statusCode, string(respBody))
 	}
@@ -189,7 +189,7 @@ func mergeToolCall(toolCalls *[]*types.ToolCall, delta types.ToolCall) {
 
 // buildAggregatedResponse 组装
 // 聚合后的完整响应。
-func buildAggregatedResponse(agg *types.DeepseekChatResponse, content, reasoning string, toolCalls []*types.ToolCall) (*types.DeepseekChatResponse, error) {
+func buildAggregatedResponse(agg *types.ChatResponse, content, reasoning string, toolCalls []*types.ToolCall) (*types.ChatResponse, error) {
 	assistant := types.AssistantMessage{Content: &content}
 	if reasoning != "" {
 		r := reasoning
@@ -198,7 +198,7 @@ func buildAggregatedResponse(agg *types.DeepseekChatResponse, content, reasoning
 	for _, call := range toolCalls {
 		assistant.ToolCalls = append(assistant.ToolCalls, *call)
 	}
-	agg.Choices = []types.DeepseekChatChoice{
+	agg.Choices = []types.ChatChoice{
 		{Index: 0, FinishReason: types.FinishReasonStop, Message: assistant},
 	}
 	return agg, nil

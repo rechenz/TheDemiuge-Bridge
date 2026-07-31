@@ -1,4 +1,4 @@
-package llm
+package deepseek
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 // Chat 非流式对话入口:一次调用,直接返回完整响应
 // (含 message + tool_calls + usage)。
 // messages 为空时返回 (nil, nil),由调用方保证至少 1 条消息。
-func Chat(ctx context.Context, messages []types.Message, cfg *config.Config) (*types.DeepseekChatResponse, error) {
-	request := cfg.ToDeepseekRequest(messages)
+func Chat(ctx context.Context, messages []types.Message, cfg *config.Config) (*types.ChatResponse, error) {
+	request := cfg.ToChatRequest(messages)
 	if request == nil {
 		return nil, nil
 	}
@@ -20,5 +20,5 @@ func Chat(ctx context.Context, messages []types.Message, cfg *config.Config) (*t
 	request.Stream = false
 	request.StreamOptions = nil
 
-	return sendChat(ctx, request, cfg.DeepSeekKey)
+	return sendChat(ctx, request, cfg.APIKey)
 }

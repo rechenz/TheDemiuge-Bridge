@@ -12,8 +12,8 @@ import (
 type Config struct {
 	// Addr 服务器监听地址
 	Addr string
-	// DeepSeekKey DeepSeek API Key
-	DeepSeekKey string
+	// APIKey LLM 提供方 API Key
+	APIKey string
 	// ModelName 模型名:deepseek-v4-flash 或 deepseek-v4-pro
 	ModelName string
 	// MaxTokens 限制一次请求中模型生成 completion 的最大 token 数
@@ -43,7 +43,7 @@ func Load() *Config {
 	thinking := types.ThinkingEnabled
 	return &Config{
 		Addr:            getEnv("ADDR", ":8080"),
-		DeepSeekKey:     getEnv("DEEPSEEK_API_KEY", ""),
+		APIKey:          getEnv("DEEPSEEK_API_KEY", ""),
 		ModelName:       getEnv("MODEL_NAME", types.ModelV4Flash),
 		MaxTokens:       getEnvInt("MAX_TOKENS", 4096),
 		Temperature:     getEnvFloat32("TEMPERATURE", 0.7),
@@ -58,14 +58,14 @@ func Load() *Config {
 	}
 }
 
-// ToDeepseekRequest 将配置映射为 DeepSeek Chat Completions 请求体。
+// ToChatRequest 将配置映射为 Chat Completions 请求体。
 // messages 为空时返回 nil,由调用方保证至少 1 条消息。
-func (c *Config) ToDeepseekRequest(messages []types.Message) *types.DeepseekChatRequest {
+func (c *Config) ToChatRequest(messages []types.Message) *types.ChatRequest {
 	if len(messages) == 0 || c == nil {
 		return nil
 	}
 
-	req := &types.DeepseekChatRequest{
+	req := &types.ChatRequest{
 		Messages:        messages,
 		Model:           c.ModelName,
 		Thinking:        c.Thinking,

@@ -1,4 +1,4 @@
-package llm
+package deepseek
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 // 流结束后返回聚合的完整响应,错误经返回值传递。
 // 回调返回错误时立即中止。messages 为空时返回 (nil, nil)。
 func ChatStream(ctx context.Context, messages []types.Message, cfg *config.Config,
-	onChunk func(*types.ChatCompletionStreamChunk) error) (*types.DeepseekChatResponse, error) {
+	onChunk func(*types.ChatCompletionStreamChunk) error) (*types.ChatResponse, error) {
 
-	request := cfg.ToDeepseekRequest(messages)
+	request := cfg.ToChatRequest(messages)
 	if request == nil {
 		return nil, nil
 	}
@@ -24,5 +24,5 @@ func ChatStream(ctx context.Context, messages []types.Message, cfg *config.Confi
 		request.StreamOptions = &types.StreamOptions{IncludeUsage: true}
 	}
 
-	return sendChatStream(ctx, request, cfg.DeepSeekKey, onChunk)
+	return sendChatStream(ctx, request, cfg.APIKey, onChunk)
 }
