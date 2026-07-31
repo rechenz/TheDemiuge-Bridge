@@ -7,14 +7,16 @@
 ## P0 — 核心对话跑通 🎯（当前阶段）
 
 ### ✅ 已完成
-- [x] `internal/types/` 完整重写 — message.go（Message 接口 + 四类消息）+ deepseek.go（请求/响应/SSE/Usage/错误）+ tools.go（Tool/JSONSchema/ToolChoice）
-- [x] `internal/config/` 重写 — 环境变量加载 + `ToDeepseekRequest()` 映射
-- [x] `go build ./...` 通过
-- [x] 提交 types/config 改动（7108a5b）
-- [x] 文档纳入版本管理（61661b9，docs/ARCHITECTURE.md + docs/TODO.md）
-- [x] 架构评审完成（2026-07-31）：回调式 LLM 入口 / schema 反射 / SSE 批量 / service 延后 / memory 三路线
+
+- [X] `internal/types/` 完整重写 — message.go（Message 接口 + 四类消息）+ deepseek.go（请求/响应/SSE/Usage/错误）+ tools.go（Tool/JSONSchema/ToolChoice）
+- [X] `internal/config/` 重写 — 环境变量加载 + `ToDeepseekRequest()` 映射
+- [X] `go build ./...` 通过
+- [X] 提交 types/config 改动（7108a5b）
+- [X] 文档纳入版本管理（61661b9，docs/ARCHITECTURE.md + docs/TODO.md）
+- [X] 架构评审完成（2026-07-31）：回调式 LLM 入口 / schema 反射 / SSE 批量 / service 延后 / memory 三路线
 
 ### 📌 待办
+
 - [ ] LLM 客户端重写 `internal/llm/`（旧 deepseek.go/completion.go 已删）
   - [ ] **回调式两入口**：`Chat(ctx, req) (*ChatResponse, error)` 非流式 + `ChatStream(ctx, req, onToken)` 流式
   - [ ] tool_calls 增量在客户端内部拼接，流结束随响应返回，不混在 Token 里
@@ -35,6 +37,7 @@
 - [ ] 提交 P0 完成版本
 
 ### 🧹 清理
+
 - [ ] README.md 更新（当前只有一行）
 
 ---

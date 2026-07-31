@@ -130,6 +130,10 @@ func NewSchemaObject(description string, properties map[string]*JSONSchema, requ
 // 同时用于非流式响应的 message.tool_calls 与
 // 流式 chunk 的 delta.tool_calls(增量拼接)。
 type ToolCall struct {
+	// Index 标识号,仅流式 delta.tool_calls 中携带,
+	// 用于把同一个 function 调用的增量块(id/name/arguments 片段)归位拼接;
+	// 非流式响应的 message.tool_calls 无此字段,为零值。
+	Index int `json:"index,omitempty"`
 	// ID tool 调用的 ID
 	ID string `json:"id"`
 	// Type tool 的类型,目前仅支持 "function"
