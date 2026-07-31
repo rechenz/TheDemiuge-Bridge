@@ -6,13 +6,14 @@
 
 ## P0 — 核心对话跑通 🎯（当前阶段）
 
-### ✅ 已完成（工作区，待提交）
+### ✅ 已完成
 - [x] `internal/types/` 完整重写 — message.go（Message 接口 + 四类消息）+ deepseek.go（请求/响应/SSE/Usage/错误）+ tools.go（Tool/JSONSchema/ToolChoice）
 - [x] `internal/config/` 重写 — 环境变量加载 + `ToDeepseekRequest()` 映射
 - [x] `go build ./...` 通过
+- [x] 提交 types/config 改动（7108a5b）
+- [x] 文档纳入版本管理（61661b9，docs/ARCHITECTURE.md + docs/TODO.md）
 
 ### 📌 待办
-- [ ] 提交当前 types/config 改动（地基固化，单独 commit）
 - [ ] LLM 客户端重写 `internal/llm/`（旧 deepseek.go/completion.go 已删）
   - [ ] `client.go` — 统一入口 `Chat(ctx, req) → <-chan Token`（流式/非流式同一接口）
   - [ ] `deepseek.go` — 用 types.DeepseekChatRequest / ChatCompletionStreamChunk 实现
