@@ -1,7 +1,7 @@
 # TheDemiuge-Bridge 架构设计
 
 > 最后更新：2026-07-31
-> 状态：重构中（2026-07-30 完全重写，types/config 层已完成，llm/agent/server 待重建）
+> 状态：重构中（types/config 完成；llm/agent/server 待重建；2026-07-31 架构评审完成：回调式 LLM 入口 / schema 反射 / SSE 批量 / service 延后）
 
 ---
 
@@ -72,6 +72,13 @@
 │              │ (未来: OpenAI /   │                             │
 │              │  本地模型)       │                             │
 │              └──────────────────┘                             │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │    Types / Config（共享地基，✅ 已完成 2026-07-31）   │    │
+│  │    internal/types（消息/请求/响应/SSE/工具）+         │    │
+│  │    internal/config（环境变量 → 请求映射）             │    │
+│  │    所有层共用，不依赖任何上层                          │    │
+│  └──────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -122,7 +129,7 @@ internal/store/
 - 所有 store 定义 interface，不暴露具体实现
 - 当前是内存实现（快速开发）
 - 以后加 SQLite 实现，业务代码一行不改
-- 未来微服务化：接口不变，实现变 gRPC 客户端
+- **微服务化是学习方向（热尘个人目标）**：接口隔离正是微服务化的前置条件——未来拆成独立服务时，业务层依赖的是 interface，实现换成 gRPC 客户端即可。P0~P2 阶段不做微服务（YAGNI），但接口隔离从现在保留
 
 **NPC 生命周期：**
 ```
@@ -153,6 +160,26 @@ internal/agent/
 4. 返回最终回复
 ```
 
+**流式 + tool_call 的处理（重要细节）：**
+
+DeepSeek 流式响应中 tool_calls 是增量出现的（delta.tool_calls 携带 index/id/name/arguments 片段）。因此 Agent 的流式对话流程是：
+
+```
+1. 流式收 token，同时累积拼接 tool_calls 增量
+2. 流结束（收到 finish_reason）后统一判断：
+   ├─ finish_reason == tool_calls → 执行工具 → 把结果回馈 → 重新请求 LLM
+   └─ finish_reason == stop → 流式推送最终文本给客户端
+```
+
+**关键点：** 流式过程中不能边收边执行工具——必须等流结束拿到完整 tool_calls 才能执行。客户端看到的顺序是：先收到文本流（可能为空），若模型决定调用工具，最后收到工具调用事件，Agent 内部循环完成后才输出最终回复。
+
+**Service 层决策（2026-07-31）：**
+
+原架构图里有「Service」层但模块清单里没有，对不上。决策：
+- **P0 阶段：不设 Service 层**，handler → agent 直连，少一层空转
+- **P1 阶段（多 NPC 并发会话）**：拆出轻量 service 层（会话生命周期 + NPC 编排），handler 只做 HTTP 解析
+- 因此 4.1 数据流图中的 Service 列在 P0 表示 handler 内的编排逻辑（虚线），P1 起独立成层
+
 ### 3.4 Tool System — `internal/tool/`
 
 NPC 能力扩展系统。
@@ -176,6 +203,30 @@ type Tool interface {
 }
 ```
 
+**Schema 反射（2026-07-31 新增）：**
+
+手写 JSON Schema 繁琐易错。新增反射工具 `FromStruct(v any) (*JSONSchema, error)`，让工具作者用 struct + tag 定义参数，自动生成 schema：
+
+```go
+// 工具作者只需写这个：
+type WaveHandArgs struct {
+    Target string `json:"target" jsonschema:"挥手目标角色,required"`
+    Times  int    `json:"times" jsonschema:"挥手次数,default=1"`
+}
+
+// 注册时自动生成 schema，不用手写
+schema, _ := FromStruct(WaveHandArgs{})
+```
+
+**tag 约定（待定，实现时确认）：**
+- `json` tag 定字段名（与序列化一致）
+- `jsonschema` tag 定描述，逗号分隔附加约束（required / default / enum）
+- 支持 string / number / integer / boolean / array / object 嵌套
+
+**职责划分：**
+- `Execute(ctx, args)` 的 args 用 `ToolCallFunction.UnmarshalArguments(v)` 解码到具体 struct
+- 模型生成的参数不一定合法，执行前必须校验（strict 模式 + 反射校验双重保障）
+
 ### 3.5 LLM Client — `internal/llm/`（待重写）
 
 > ⚠️ 2026-07-31 工作区已删除旧实现（deepseek.go / completion.go），
@@ -190,40 +241,57 @@ internal/llm/
 └── provider.go   # Provider 接口
 ```
 
-**关键设计：只暴露一个入口**
+**关键设计：两个入口，不强行统一（2026-07-31 修订）**
+
+~~旧设计：无论流式/非流式都返回 `<-chan Token`~~ —— channel 有泄漏风险、错误传递别扭、tool call 混在流里判断麻烦。改为：
 
 ```go
-// client.go — 统一入口
-func Chat(ctx context.Context, req ChatRequest) (<-chan Token, error)
+// 非流式：直接返回完整响应
+func Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+
+// 流式：回调推 token，错误通过返回值传递
+func ChatStream(ctx context.Context, req ChatRequest, onToken func(Token) error) error
 
 type ChatRequest struct {
-    Messages    []ChatMessage
-    Tools       []ToolDef
-    Stream      bool
+    Messages    []types.Message
+    Tools       []types.Tool
     MaxTokens   int
     Temperature float32
+    // ... 其余参数由 config 提供
 }
 
 type Token struct {
-    Content string    // SSE content
-    ToolID  string    // tool call id
-    Done    bool
-    Error   error
+    Content          string  // 文本增量
+    ReasoningContent string  // 推理增量
+    // 注意：tool_calls 增量由客户端内部拼接，
+    // 流结束统一通过 ChatResponse.ToolCalls 返回，不混在 Token 里
 }
 ```
 
-无论是流式还是非流式，都返回 `<-chan Token`。调用方通过 channel 读内容：
-- 非流式：channel 只返回一个 Token（或分块）
-- 流式：逐 token 推送
-- tool call：标记为特殊 Token 类型
+**设计要点：**
+- 非流式：一次调用，直接返回 `ChatResponse`（含 message + tool_calls + usage）
+- 流式：回调收增量，**tool_calls 由客户端内部拼接**，流结束时随响应返回——Agent 层不用关心 DeepSeek 的 delta 协议细节
+- 错误处理：HTTP/网络错误直接 return error；API 错误解析为 `types.DeepSeekAPIError` 供上层重试/降级
 
 ### 3.6 Memory System — `internal/memory/`（TODO）
 
-长期记忆管理。
+长期记忆管理。**2026-07-31 修订：记忆拆为三条独立路线，不要混着做：**
 
-- **短期记忆：** Agent 上下文（已在 `State.Messages`）
-- **长期记忆：** 离线蒸馏 → LoRA weight dump
-- **接口：** `Store(npcID, context)` / `Recall(npcID) → Memory`
+| 路线 | 技术方案 | 阶段 | 状态 |
+|------|----------|------|------|
+| 对话记忆 | 上下文窗口（LLM 原生，`State.Messages`） | P0 即生效 | 无需额外开发 |
+| 长期记忆 | 摘要 + 事实库召回 → 注入 prompt（RAG 路线） | P2 | TODO |
+| 蒸馏记忆 | 离线微调 → LoRA weight dump（与 weight-masking 实验联动） | P4 | 远期 |
+
+**接口（P2 落地）：**
+```go
+// 短期：Agent 上下文（已在 State.Messages，无需接口）
+// 长期：
+Store(npcID, context)   // 摘要/事实写入
+Recall(npcID) → Memory  // 召回 → 注入 prompt
+```
+
+> ⚠️ 注意：P2 的「记忆召回 → 注入 prompt」是 RAG/摘要路线，与 P4 的 LoRA 蒸馏是**两套完全不同的技术**，互不替代。P4 蒸馏是独立远期实验（对齐 weight-masking 实验结论：Fixed Mask 在困难数据集反超 baseline），不阻塞 P0~P3。
 
 ### 3.7 Config — `internal/config/` ✅（已完成）
 
@@ -253,37 +321,42 @@ internal/types/
 ### 4.1 NPC 对话（核心流程）
 
 ```
-客户端                     Server              Service            Agent               LLM
-  │                         │                    │                 │                  │
-  │ POST /api/chat          │                    │                 │                  │
-  │ {npc_id, message}       │                    │                 │                  │
-  │────────────────────────→│                    │                 │                  │
-  │                         │  Parse request     │                 │                  │
-  │                         │────────────────────│                 │                  │
-  │                         │ Get/Session        │                 │                  │
-  │                         │───────────────────→│                 │                  │
-  │                         │ Get/NPC identity   │                 │                  │
-  │                         │───────────────────→│                 │                  │
-  │                         │                    │ Append user msg │                  │
-  │                         │                    │ → state         │                  │
-  │                         │                    │────────────────→│                  │
-  │                         │                    │                 │ Build system      │
-  │                         │                    │                 │ prompt            │
-  │                         │                    │                 │──────────────────→│
-  │                         │                    │                 │  Chat request     │
-  │                         │                    │                 │──────────────────→│
-  │                         │                    │                 │   ← stream tokens │
-  │                         │ ← stream tokens   │                 │                  │
-  │  ← stream tokens       │                    │                 │                  │
-  │                         │                    │                 │ If tool_call      │
-  │                         │                    │                 │ → Exec tool       │
-  │                         │                    │                 │ → Loop LLM        │
-  │                         │                    │                  ← final response  │
-  │                         │ ← final response  │                 │                  │
-  │  ← final response      │                    │                 │                  │
+客户端                     Server              Agent               LLM
+  │                         │                    │                  │
+  │ POST /api/chat          │                    │                  │
+  │ {npc_id, message}       │                    │                  │
+  │────────────────────────→│                    │                  │
+  │                         │  Parse request     │                  │
+  │                         │  (P0: handler 内   │                  │
+  │                         │   编排；P1: 拆 service)              │
+  │                         │ Get/Session        │                  │
+  │                         │───────────────────→│                  │
+  │                         │ Get/NPC identity   │                  │
+  │                         │───────────────────→│                  │
+  │                         │                    │ Append user msg  │
+  │                         │                    │ → state          │
+  │                         │                    │ Build system     │
+  │                         │                    │ prompt           │
+  │                         │                    │──────────────────→│
+  │                         │                    │  Chat request    │
+  │                         │                    │──────────────────→│
+  │                         │                    │   ← stream tokens│
+  │                         │ ← stream tokens   │                  │
+  │  ← stream tokens       │                    │                  │
+  │                         │                    │ finish_reason ==  │
+  │                         │                    │ tool_calls?       │
+  │                         │                    │ → Exec tool       │
+  │                         │                    │ → Loop LLM        │
+  │                         │                    │  ← final response │
+  │                         │ ← final response  │                  │
+  │  ← final response      │                    │                  │
 ```
 
-### 4.2 NPC 离屏记忆蒸馏（远期）
+> P0 阶段 handler 内完成会话/NPC 编排（相当于数据流里的 Service 职责）；P1 起独立为 `service/` 层。
+
+### 4.2 NPC 离屏记忆蒸馏（远期，独立路线）
+
+> 与 P2 的 RAG 记忆互不替代，是独立实验路线。
 
 ```
 场景卸载 → 触发异步蒸馏任务
@@ -304,9 +377,17 @@ internal/types/
 | `agent/` | Agent Run + Prompt Builder | 无 | ❌ 待重建（已删） |
 | `tool/` | 注册 + 工具实现 | 无 | ❌ 待重建（已删） |
 | `llm/` | 统一入口 | 无（旧实现已删） | ❌ 待重写 |
-| `store/` | NPC/Session/Memory 接口 | 无 | ❌ 未开工（P1） |
+| `store/` | NPC/Session/Memory 接口 | 无 | ❌ 未开工（P1，接口隔离为微服务学习方向预留） |
 
 **当前可编译**（`go build ./...` 通过），但运行是空服务器。
+
+**2026-07-31 架构评审结论：**
+- LLM 统一入口：`<-chan Token` → **回调式两入口**（Chat / ChatStream）
+- Tool 参数：手写 schema → **FromStruct 反射**
+- Service 层：P0 不设，handler 直连 agent；P1 多 NPC 并发时再拆
+- Memory：拆为对话记忆（P0）/ 长期 RAG（P2）/ 蒸馏（P4）三条独立路线
+- SSE：每 token 一事件 → **批量推送 + error 事件 + X-API-Key 鉴权**
+- 微服务化：保留为学习方向，接口隔离前置
 
 ---
 
@@ -320,18 +401,20 @@ internal/types/
 - [x] 提交 types/config 地基版本（待做）
 
 **待完成：**
-1. [ ] LLM 客户端重写（`internal/llm/`）：ChatCompletion（非流式）+ ChatStream（SSE），基于新 types
-2. [ ] Agent 层重建（`internal/agent/`）：Run 循环 + Prompt Builder + tool_calls 循环
-3. [ ] Tool 系统（`internal/tool/`）：Registry + 示例工具（time.go）
-4. [ ] Server 层重建（`internal/server/`）：chat handler + 路由注册 + main.go 接线
-5. [ ] 验证：本地 curl → HTTP SSE → DeepSeek → tool call → 返回
-6. [ ] 提交 P0 完成版本
+1. [ ] LLM 客户端重写（`internal/llm/`）：**回调式两入口** `Chat`（非流式）+ `ChatStream`（流式回调），tool_calls 客户端内部拼接，基于新 types
+2. [ ] Agent 层重建（`internal/agent/`）：Run 循环 + Prompt Builder + tool_calls 循环（流结束再判断工具调用）
+3. [ ] Tool 系统（`internal/tool/`）：Registry + **FromStruct schema 反射** + 示例工具（time.go）
+4. [ ] Server 层重建（`internal/server/`）：chat handler + 路由注册 + main.go 接线（P0 不设 service 层）
+5. [ ] 协议落地：**SSE 批量推送 + error 事件 + X-API-Key 鉴权**
+6. [ ] 验证：本地 curl → HTTP SSE → DeepSeek → tool call → 返回
+7. [ ] 提交 P0 完成版本
 
 ### P1 — NPC 管理
-1. `service/npc.go` — NPC 注册/查询
-2. NPC 角色 prompt 可配置（不再是硬编码）
-3. 多 NPC 并发会话
-4. 会话超时/自动清理
+1. 拆出轻量 `service/` 层（会话生命周期 + NPC 编排，P0 时在 handler 内）
+2. `service/npc.go` — NPC 注册/查询
+3. NPC 角色 prompt 可配置（不再是硬编码）
+4. 多 NPC 并发会话
+5. 会话超时/自动清理
 
 ### P2 — 记忆系统
 1. 短期记忆上下文窗口管理
@@ -363,6 +446,8 @@ POST /api/v1/memory/:npc_id/distill    — 触发记忆蒸馏
 GET  /api/v1/health                    — 健康检查
 ```
 
+**鉴权（2026-07-31 新增）：** 所有 `/api/v1/*` 路由要求 `X-API-Key` header，配置项 `API_KEY`（空则仅允许 localhost，P0 阶段默认本地联调）。
+
 **请求格式：**
 ```json
 {
@@ -378,15 +463,31 @@ GET  /api/v1/health                    — 健康检查
 }
 ```
 
-**响应格式（SSE）：**
+**响应格式（SSE，2026-07-31 优化为批量推送）：**
+
+> ❌ 旧设计：每 token 一个事件、每个都是独立 JSON —— 游戏引擎侧解析开销大。
+> ✅ 新设计：按批推送（攒 ~20-50 字或按句号/停顿切分），减少事件数；文本可整体放入一个事件。
+
 ```
-data: {"type":"token","content":"欢"}
-data: {"type":"token","content":"迎"}
-data: {"type":"token","content":"光"}
-data: {"type":"token","content":"临"}
-data: {"type":"token","content":"！"}
-data: {"type":"tool_call","name":"wave_hand"}
+data: {"type":"text","content":"欢迎光临！请问需要点什么？"}
+data: {"type":"tool_call","name":"wave_hand","args":{"target":"player"}}
 data: {"type":"done"}
+```
+
+**事件类型：**
+
+| type | 含义 | 字段 |
+|------|------|------|
+| `text` | 文本增量（批） | `content` |
+| `reasoning` | 推理内容增量（可选，思考模式） | `content` |
+| `tool_call` | 工具调用（客户端内部拼接完成后发出） | `name`, `args` |
+| `error` | 错误事件（新增） | `code`, `message` |
+| `done` | 流结束 | — |
+| `usage` | token 用量（可选，需 stream_options.include_usage） | `prompt_tokens`, `completion_tokens` |
+
+**错误示例：**
+```
+data: {"type":"error","code":"rate_limit","message":"请求过于频繁"}
 ```
 
 ---
