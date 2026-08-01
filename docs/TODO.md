@@ -1,49 +1,64 @@
 # TheDemiuge-Bridge 任务追踪
 
-> 最后更新：2026-08-01（LLM 层全量完善并提交）
+> 最后更新：2026-08-01（ReAct 接线完成；MCP 规划迁往 UE5 端）
 
 ---
 
-## P0 — 核心对话跑通 🎯（当前阶段）
+## P0 — 核心对话跑通 ✅（2026-08-01 完成）
 
-### ✅ 已完成
+### 已完成
 
-- [X] `internal/types/` 完整重写 — message.go（Message 接口 + 四类消息）+ deepseek.go（请求/响应/SSE/Usage/错误）+ tools.go（Tool/JSONSchema/ToolChoice）
+- [X] `internal/types/` 完整重写 — message.go + deepseek.go + tools.go（提交 7108a5b）
 - [X] `internal/config/` 重写 — 环境变量加载 + `ToDeepseekRequest()` 映射
-- [X] `go build ./...` 通过
-- [X] 提交 types/config 改动（7108a5b）
-- [X] 文档纳入版本管理（61661b9，docs/ARCHITECTURE.md + docs/TODO.md）
-- [X] 架构评审完成（2026-07-31）：回调式 LLM 入口 / schema 反射 / SSE 批量 / service 延后 / memory 三路线
+- [X] `internal/llm/` — 回调式两入口（Chat / ChatStream）、tool_calls 增量拼接、Provider 抽象、错误分类哨兵、httptest 单测（提交 3cfc325 前工作区完成）
+- [X] `internal/agent/react.go` — ReAct 循环（Runner）：LLM → tool_calls → 执行 → 回馈 → 再请求；actor 流式 / system 非流式；评述归档；最大轮次保护
+- [X] `internal/ue5/` — 实例注册中心（Manager + Instance + Client）：agent/tool 动态注册、落盘恢复、工具转发、变更广播
+- [X] `internal/mcp/` — MCP 协议层（JSON-RPC 分发 + SSE Hub + tools/prompts 方法）
+- [X] `internal/server/handler/` — UE5 管理 API（X-UE5-Key 鉴权）+ MCP 入口
+- [X] **`internal/tool/ue5_executor.go` — UE5 转发 ToolExecutor**（ReAct 与工具实现的解耦点）
+- [X] **`internal/server/handler/chat.go` — POST /api/chat SSE**：text / tool_call / commentary / done / error 事件；X-API-Key 鉴权（CHAT_API_KEY）
+- [X] **`cmd/server/main.go` 接线**：DeepSeek Provider + UE5Executor + ChatHandler + MCP 共存
+- [X] 单测：agent ReAct 循环（工具轮/单轮/最大轮次/无 executor）、tool 转发（结构化/文本/未注册/500）、**chat 集成测试（真实 Hertz + mock UE5 + mock LLM 全链路）**
+- [X] `go build ./...` / `go vet ./...` / `go test ./...` 全绿
+- [X] 文档纳入版本管理（docs/ARCHITECTURE.md + docs/TODO.md）
 
-### 📌 待办
+### 遗留（P0 收尾）
 
-- [X] LLM 客户端重写 `internal/llm/`（旧 deepseek.go/completion.go 已删）
-  - [X] **回调式两入口**：`Chat(ctx, req) (*ChatResponse, error)` 非流式 + `ChatStream(ctx, req, onToken)` 流式
-  - [X] tool_calls 增量在客户端内部拼接，流结束随响应返回，不混在 Token 里
-  - [X] `provider.go` — Provider 接口抽象
-  - [X] 错误处理：DeepSeekAPIError → 重试/降级策略
-  - [X] **2026-08-01 全量完善**：Tools 通道（ChatOptions）+ finish_reason 保留 + BaseURL 可配置 + http.Client 可注入 + 错误分类哨兵 + httptest 单测
-- [ ] Agent 层重建 `internal/agent/`（已删，需重建）
-  - [ ] `agent.go` — Run 循环（LLM → 流结束判断 tool_calls → 执行 → 回馈 → 再请求）
-  - [ ] `builder.go` — NPC 角色 prompt 组装
-- [ ] Tool 系统 `internal/tool/`
-  - [ ] `registry.go` — 注册中心
-  - [ ] `FromStruct(v any)` — struct + tag → JSON Schema 反射工具（tag: required/default/enum）
-  - [ ] `tools/time.go` — 示例工具（用 FromStruct 定义参数）
-- [ ] Server 层重建 `internal/server/`（P0 不设 service 层，handler 直连 agent）
-  - [ ] `handler/chat.go` — POST /api/chat（SSE 批量推送 + error 事件）
-  - [ ] X-API-Key 鉴权（API_KEY 配置，空则仅 localhost）
-  - [ ] 路由注册 + `cmd/server/main.go` 接线
-- [ ] 验证：curl → HTTP SSE → DeepSeek → tool call → 返回
-- [ ] 提交 P0 完成版本
-
-### 🧹 清理
-
-- [ ] README.md 更新（当前只有一行）
+- [ ] commit 当前工作区（MCP 架构改造 + ReAct 接线一批提交）
+- [ ] 端到端联调：真实 DEEPSEEK_API_KEY + UE5 mock 跑一遍 curl → SSE
 
 ---
 
-## P1 — NPC 管理
+## P1 — MCP 迁往 UE5 端 🎯（2026-08-01 决策）
+
+> 架构决策：**MCP Server 最终放在 UE5 端**（游戏实例进程内），Bridge 专注 ReAct 对话。
+> Go 侧 `internal/mcp/` 保留作协议参考 / 开发期调试入口，不再扩展。
+
+### 分工
+
+```
+UE5 游戏实例：
+  - 工具执行器（进程内，无转发）
+  - MCP Server（对外暴露 tools/prompts，外部 Agent 直连）
+  - 通过 REST 向 Bridge 注册 agent/tool 定义（供 ReAct 对话用）
+
+Bridge (Go)：
+  - ReAct 对话引擎（/api/chat SSE）
+  - UE5 注册中心（缓存 UE5 上报的定义，用于对话 + 恢复）
+```
+
+### 待办
+
+- [ ] UE5 C++ 实现 MCP Server（FHttpServer / WebSocket）
+  - [ ] JSON-RPC 2.0 请求分发（initialize / ping / tools/list / tools/call / prompts/list / prompts/get）
+  - [ ] SSE 长连接替代方案（WebSocket / 轮询 / 原始 socket）
+  - [ ] agent/tool 定义本地加载（yaml/json）+ 向 Bridge 同步
+- [ ] Go 侧 `internal/mcp/` 处置：保留作参考 or 删除（联调后决定）
+- [ ] 协议规格文档（见 docs/UE5-MCP-SERVER.md 制作教程）
+
+---
+
+## P2 — NPC 管理
 
 - [ ] 拆出轻量 `service/` 层（会话生命周期 + NPC 编排）
 - [ ] `store/npc.go` — NPCStore 接口 + mem 实现
@@ -51,18 +66,18 @@
 - [ ] 多 NPC 并发会话
 - [ ] 会话超时/自动清理
 
-## P2 — 记忆系统（RAG 路线）
+## P3 — 记忆系统（RAG 路线）
 
-- [ ] 短期记忆上下文窗口
+- [ ] 短期记忆上下文窗口（已完成：State.Messages）
 - [ ] 长期记忆摘要 + 事实库召回 → 注入 prompt
 - [ ] MemoryStore 接口
 
-## P3 — 引擎对接
+## P4 — 引擎对接（除 MCP 外）
 
 - [ ] 协议定型（批量 SSE + error + 鉴权已定稿）
-- [ ] UE5 C++ 插件
+- [ ] UE5 C++ 插件（NPC 对话客户端：调 /api/chat）
 
-## P4 — 异步蒸馏（独立远期路线，与 weight-masking 实验联动）
+## P5 — 异步蒸馏（独立远期路线，与 weight-masking 实验联动）
 
 - [ ] 轻量模型集成
 - [ ] 后台蒸馏任务

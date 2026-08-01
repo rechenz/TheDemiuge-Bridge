@@ -1,7 +1,7 @@
 # TheDemiuge-Bridge 架构设计
 
 > 最后更新：2026-08-01
-> 状态：重构中（types/config/llm 完成；agent/server 待重建）
+> 状态：P0 核心对话跑通 ✅（ReAct 接线完成）；MCP 规划迁往 UE5 端（见 P1）
 
 ---
 
@@ -17,54 +17,42 @@
 
 ---
 
-## 二、整体架构
+## 二、整体架构（最终形态）
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    游戏引擎层 (任意引擎)                       │
-│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐   │
-│  │ NPC 实体管理  │   │ Dialogue UI  │   │ 场景状态同步    │   │
-│  └──────┬───────┘   └──────┬───────┘   └───────┬────────┘   │
-└─────────┼──────────────────┼───────────────────┼────────────┘
-          │                  │                   │
-          └──────────────────┼───────────────────┘
-                             │   通信协议
-                    (HTTP/SSE → WebSocket → gRPC)
-                             ▼
+┌─ UE5 游戏实例 ──────────────────────────────────────────────┐
+│   NPC 实体管理 / Dialogue UI / 场景状态同步                  │
+│   工具执行器（进程内,无转发）                                 │
+│   MCP Server（对外暴露 tools/prompts,外部 Agent 直连）──2026-08-01 规划──▶│
+│        │                                                     │
+│        │ agent/tool 定义注册 (REST /api/v1/ue5)              │
+└────────┼─────────────────────────────────────────────────────┘
+         ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                  TheDemiuge Bridge (Go)                      │
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐    │
-│  │                   Server Layer                       │    │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │    │
-│  │  │ Router   │→ │ Middle   │→ │ Handler          │   │    │
-│  │  │ (Hertz)  │  │(Auth/Log)│  │ (业务入口)        │   │    │
-│  │  └──────────┘  └──────────┘  └────────┬─────────┘   │    │
-│  └────────────────────────────────────────┼─────────────┘    │
-│                                           │                  │
-│  ┌────────────────────────────────────────┼─────────────┐    │
-│  │               Core Logic               │             │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌┴──────────┐  │    │
-│  │  │ Agent        │  │ Tool         │  │ LLM       │  │    │
-│  │  │ (Prompt Build│  │ (Registry +  │  │ (Provider │  │    │
-│  │  │  + ReAct)    │  │  Tool Impl)  │  │  抽象层)  │  │    │
-│  │  └──────┬───────┘  └──────┬───────┘  └─────┬─────┘  │    │
-│  └─────────┼─────────────────┼─────────────────┼────────┘    │
-│            │                 │                 │             │
-│            ▼                 ▼                 ▼             │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │                   Store 层（接口隔离）                 │    │
-│  │                                                      │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────┐   │    │
-│  │  │ NPCStore     │  │ SessionStore │  │ Memory   │   │    │
-│  │  │ (接口)       │  │ (接口)       │  │ Store    │   │    │
-│  │  │              │  │              │  │ (接口)   │   │    │
-│  │  ├──────────────┤  ├──────────────┤  ├──────────┤   │    │
-│  │  │ mem/         │  │ mem/         │  │ mem/     │   │    │
-│  │  │ sqlite/      │  │ sqlite/      │  │ (TODO)   │   │    │
-│  │  │ ...          │  │ ...          │  │          │   │    │
-│  │  └──────────────┘  └──────────────┘  └──────────┘   │    │
-│  └──────────────────────────────────────────────────────┘    │
+│  │                   Server Layer (Hertz)               │    │
+│  │  POST /api/chat        POST /api/v1/ue5/*             │    │
+│  │  (NPC 对话 SSE)        (UE5 注册管理, X-UE5-Key)      │    │
+│  │  /mcp/{instance_id}    /api/v1/health                 │    │
+│  │  (MCP 入口,参考/调试用)                               │    │
+│  └──────────────────────────┬───────────────────────────┘    │
+│                             │                                │
+│  ┌──────────────────────────┴───────────────────────────┐    │
+│  │               Core Logic                             │    │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │    │
+│  │  │ Agent        │  │ Tool         │  │ LLM        │  │    │
+│  │  │ (ReAct Runner│  │ (UE5Executor │  │ (Provider  │  │    │
+│  │  │  + 会话状态) │  │  转发 UE5)   │  │  抽象层)   │  │    │
+│  │  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘  │    │
+│  │         │                 │                 │         │    │
+│  │         └─────────┬───────┴─────────────────┘         │    │
+│  │                   ▼                                   │    │
+│  │  ┌──────────────────────────────────────────────┐     │    │
+│  │  │  ue5.Manager 注册中心（实例/agent/tool,落盘） │     │    │
+│  │  └──────────────────────────────────────────────┘     │    │
+│  └────────────────────────────────────────────────────────┘    │
 │                        │                                      │
 │                        ▼                                      │
 │              ┌──────────────────┐                             │
@@ -72,41 +60,41 @@
 │              │ (未来: OpenAI /   │                             │
 │              │  本地模型)       │                             │
 │              └──────────────────┘                             │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │    Types / Config（共享地基，✅ 已完成 2026-07-31）   │    │
-│  │    internal/types（消息/请求/响应/SSE/工具）+         │    │
-│  │    internal/config（环境变量 → 请求映射）             │    │
-│  │    所有层共用，不依赖任何上层                          │    │
-│  └──────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
+
+> 2026-08-01 架构决策：MCP Server 最终迁往 UE5 端（进程内,零转发）。
+> Go 侧 internal/mcp/ 保留作协议参考与开发期调试入口,不再扩展。
+> 玩家对话走 Bridge /api/chat；外部 Agent 通过 UE5 端 MCP 直连工具。
 ```
 
 ---
 
 ## 三、模块详解
 
-### 3.1 Server Layer — `internal/server/`（待重建）
+### 3.1 Server Layer — `internal/server/` ✅（2026-08-01 完成）
 
-> ⚠️ 2026-07-30 重写时已删除，当前 `cmd/server/main.go` 只是空壳（无任何路由）。
-> 目标目录结构：
+> Hertz 初始化 + 路由注册在 `cmd/server/main.go`，handler 在 `internal/server/handler/`。
+> 当前路由：
 
 ```
-internal/server/
-├── server.go       # Hertz 初始化 + 路由注册
-├── middleware/     # 中间件（日志、鉴权、CORS）
-└── handler/       # 请求处理器
-    ├── chat.go    # NPC 对话
-    ├── npc.go     # NPC CRUD
-    ├── session.go # 会话管理
-    └── health.go  # 健康检查
+POST /api/chat            NPC 对话 SSE（X-API-Key 鉴权，CHAT_API_KEY）
+/api/v1/ue5/*             UE5 注册管理（X-UE5-Key 鉴权）
+/mcp/{instance_id}        MCP 入口（参考/调试用）
+GET  /api/v1/health       健康检查
+```
+
+```
+internal/server/handler/
+├── chat.go               # POST /api/chat（SSE：text/tool_call/commentary/done/error）
+├── ue5_handler.go        # UE5 注册管理 API
+└── mcp_handler.go        # MCP 入口（JSON-RPC + SSE 变更通知）
 ```
 
 **职责：**
 - 路由分发到 handler
 - 请求验证
 - 响应格式化
-- 不包含业务逻辑
+- 不包含业务逻辑（业务在 agent/ue5/tool 层）
 
 ### 3.2 Store Layer — `internal/store/`（接口隔离）
 
@@ -138,17 +126,17 @@ Register → Loaded (场景加载) → Active (对话中)
                                                               └→ Archived (彻底下线)
 ```
 
-### 3.3 Agent Core — `internal/agent/`（待重建）
+### 3.3 Agent Core — `internal/agent/` ✅（2026-08-01 完成）
 
-> ⚠️ 2026-07-30 重写时已删除（agent.go / tool.go / example_tool.go / types.go），需按新 types 体系重建。
+> ReAct 循环已重建（`internal/agent/react.go`），基于新 types 体系。
+> Prompt Builder 暂以 `agent.SystemPrompt + 工具列表` 形式在 Runner 内组装（buildMessages）。
 
-AI 交互核心，Agent + Tool + ReAct。
+AI 交互核心，Agent + ReAct。
 
 ```
 internal/agent/
-├── agent.go       # Agent 核心（Run 循环）
-├── builder.go     # Prompt Builder
-└── types.go       # 类型定义
+├── react.go       # Runner：ReAct 循环（LLM → tool_calls → 执行 → 回馈 → 再请求）
+└── react_test.go  # 单测（工具轮/单轮/最大轮次/无 executor）
 ```
 
 **Agent.Run 流程：**
@@ -180,32 +168,31 @@ DeepSeek 流式响应中 tool_calls 是增量出现的（delta.tool_calls 携带
 - **P1 阶段（多 NPC 并发会话）**：拆出轻量 service 层（会话生命周期 + NPC 编排），handler 只做 HTTP 解析
 - 因此 4.1 数据流图中的 Service 列在 P0 表示 handler 内的编排逻辑（虚线），P1 起独立成层
 
-### 3.4 Tool System — `internal/tool/`
+### 3.4 Tool System — `internal/tool/` ✅（2026-08-01 完成）
 
-NPC 能力扩展系统。
+Agent 的工具执行层。**架构决策：工具实际执行在 UE5 侧，Bridge 只做转发。**
 
 ```
 internal/tool/
-├── registry.go    # Tool 注册中心
-└── tools/         # 具体工具实现
-    ├── time.go    # 获取时间
-    ├── search.go  # 知识库搜索（TODO）
-    └── ...
+└── ue5_executor.go    # UE5Executor：实现 agent.ToolExecutor，转发到 UE5 执行
 ```
 
-**Tool 接口：**
+**ToolExecutor 接口（agent 包定义，tool 包实现）：**
 ```go
-type Tool interface {
-    Name() string
-    Description() string
-    Parameters() JSONSchema
-    Execute(ctx, args) → (result, error)
+type ToolExecutor interface {
+    Execute(ctx, call types.ToolCall) (result string, err error)
 }
 ```
 
-**Schema 反射（2026-07-31 新增）：**
+**UE5Executor 执行流程：**
+1. 从 ue5.Manager 取工具注册条目（按实例隔离）
+2. 解析模型生成的参数 JSON（非法时回馈错误给模型）
+3. ue5.Client.Forward 转发到 UE5 侧（地址解析：工具 Endpoint → 实例 DefaultEndpoint → 全局默认）
+4. 返回结果文本（结构化 result 序列化 / 自由文本原样）
 
-手写 JSON Schema 繁琐易错。新增反射工具 `FromStruct(v any) (*JSONSchema, error)`，让工具作者用 struct + tag 定义参数，自动生成 schema：
+**未来本地工具（2026-07-31 设计保留，暂未实现）：**
+
+手写 JSON Schema 繁琐易错。预留反射工具 `FromStruct(v any) (*JSONSchema, error)`，让工具作者用 struct + tag 定义参数，自动生成 schema：
 
 ```go
 // 工具作者只需写这个：
@@ -218,14 +205,8 @@ type WaveHandArgs struct {
 schema, _ := FromStruct(WaveHandArgs{})
 ```
 
-**tag 约定（待定，实现时确认）：**
-- `json` tag 定字段名（与序列化一致）
-- `jsonschema` tag 定描述，逗号分隔附加约束（required / default / enum）
-- 支持 string / number / integer / boolean / array / object 嵌套
-
-**职责划分：**
-- `Execute(ctx, args)` 的 args 用 `ToolCallFunction.UnmarshalArguments(v)` 解码到具体 struct
-- 模型生成的参数不一定合法，执行前必须校验（strict 模式 + 反射校验双重保障）
+> ⚠️ FromStruct 属于「本地工具」路线（如 get_time）。当前所有工具都注册在 UE5 侧，
+> 本地工具暂不接入；需要时再实现 registry.go + FromStruct + tools/。
 
 ### 3.5 LLM Client — `internal/llm/` ✅（已完成 2026-08-01）
 
@@ -362,6 +343,10 @@ internal/types/
 ```
 
 > P0 阶段 handler 内完成会话/NPC 编排（相当于数据流里的 Service 职责）；P1 起独立为 `service/` 层。
+>
+> 工具执行环节（finish_reason == tool_calls）：Runner → tool.UE5Executor → ue5.Client.Forward
+> → UE5 游戏实例进程内执行 → 结果文本回馈 LLM。玩家侧通过 SSE 实时收到
+> `text` / `tool_call` / `commentary` / `done` / `error` 事件（见 chat.go 协议）。
 
 ### 4.2 NPC 离屏记忆蒸馏（远期，独立路线）
 
@@ -376,19 +361,24 @@ internal/types/
 
 ---
 
-## 五、当前状态对比（2026-07-31 更新）
+## 五、当前状态对比（2026-08-01 更新）
 
-| 模块      | 应有                       | 现有                                                | 状态                                         |
-| --------- | -------------------------- | --------------------------------------------------- | -------------------------------------------- |
-| `types/`  | 完整 API 类型体系          | `message.go` + `deepseek.go` + `tools.go`（737 行） | ✅ 已重写，未提交                             |
-| `config/` | 配置加载 + 请求映射        | `config.go`（ToDeepseekRequest）                    | ✅ 已重写，未提交                             |
-| `server/` | Hertz + handler            | `cmd/server/main.go` 空壳                           | ❌ 待重建                                     |
-| `agent/`  | Agent Run + Prompt Builder | 无                                                  | ❌ 待重建（已删）                             |
-| `tool/`   | 注册 + 工具实现            | 无                                                  | ❌ 待重建（已删）                             |
-| `llm/`    | 统一入口                   | provider + deepseek/（含单测）                      | ✅ 已重建（2026-08-01）                       |
-| `store/`  | NPC/Session/Memory 接口    | 无                                                  | ❌ 未开工（P1，接口隔离为微服务学习方向预留） |
+| 模块      | 应有                       | 现有                                                        | 状态                                       |
+| --------- | -------------------------- | ----------------------------------------------------------- | ------------------------------------------ |
+| `types/`  | 完整 API 类型体系          | `message.go` + `deepseek.go` + `tools.go`                   | ✅ 已完成                                   |
+| `config/` | 配置加载 + 请求映射        | `config.go`（ToChatRequest + CHAT_API_KEY）                 | ✅ 已完成                                   |
+| `server/` | Hertz + handler            | main.go 接线 + handler/{chat,ue5_handler,mcp_handler}       | ✅ 已完成（2026-08-01）                     |
+| `agent/`  | Agent Run + ReAct          | `react.go`（Runner + EventSink + 评述归档）                 | ✅ 已完成（2026-08-01）                     |
+| `tool/`   | ToolExecutor + 工具实现    | `ue5_executor.go`（转发 UE5）+ 测试                          | ✅ 已完成（2026-08-01）                     |
+| `llm/`    | 统一入口                   | provider + deepseek/（含单测）                              | ✅ 已重建（2026-08-01）                     |
+| `mcp/`    | MCP 协议层                 | 协议分发 + SSE Hub + tools/prompts                          | ✅ 已完成；**规划迁往 UE5 端**（P1）         |
+| `ue5/`    | 实例注册中心               | Manager + Instance + Client（落盘/转发/变更广播）           | ✅ 已完成（2026-08-01）                     |
+| `store/`  | NPC/Session/Memory 接口    | 无                                                          | ❌ 未开工（P2，接口隔离为微服务学习方向预留） |
 
-**当前可编译**（`go build ./...` 通过），但运行是空服务器。
+**当前可编译可运行**（`go build` / `go vet` / `go test` 全绿）：
+- 玩家对话：`POST /api/chat` → ReAct → DeepSeek → 工具转发 UE5 → SSE 回推
+- 注册管理：`/api/v1/ue5/*` 动态注册实例/agent/tool，落盘恢复
+- MCP：`/mcp/{instance_id}` JSON-RPC（保留作参考）
 
 **2026-07-31 架构评审结论：**
 - LLM 统一入口：`<-chan Token` → **回调式两入口**（Chat / ChatStream）
