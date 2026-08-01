@@ -23,14 +23,34 @@ type RegistryConfig struct {
 	ToolsFile string
 }
 
+// UE5Config UE5 实例接入配置。
+// UE5 游戏服务器通过外部管理接口动态注册 agent/tool,
+// Bridge 侧按实例隔离存储并转发工具调用。
+type UE5Config struct {
+	// APIKey UE5 管理接口的鉴权 key。
+	// 通过 X-UE5-Key header 校验;为空表示不鉴权(本地联调)。
+	APIKey string
+	// RegistryDir 注册信息落盘目录。
+	// 实例注册后实时写盘,Bridge 重启时自动恢复。默认 ./registry。
+	RegistryDir string
+	// DefaultEndpoint 全局默认的 UE5 工具执行转发地址。
+	// 工具未单独指定 Endpoint 且实例无 DefaultEndpoint 时使用。
+	DefaultEndpoint string
+}
+
 // Config 服务运行配置。
 type Config struct {
 	// Addr 服务器监听地址
 	Addr string
 	// APIKey LLM 提供方 API Key
 	APIKey string
+	// ChatAPIKey /api/chat 接口鉴权 key(X-API-Key header)。
+	// 为空时不鉴权(本地联调);非空时校验失败返回 401。
+	ChatAPIKey string
 	// Registry Agent / Tool 注册的 YAML 存储位置
 	Registry RegistryConfig
+	// UE5 UE5 实例接入配置(动态注册 + 转发)
+	UE5 UE5Config
 	// BaseURL LLM 提供方 Chat Completions 接口地址,默认 DeepSeek 官方地址。
 	// 换 OpenAI / 本地模型等兼容服务时只需改这里,上层零改动。
 	BaseURL string
@@ -67,11 +87,17 @@ type Config struct {
 func Load() *Config {
 	thinking := types.ThinkingEnabled
 	return &Config{
-		Addr:   getEnv("ADDR", ":8080"),
-		APIKey: getEnv("DEEPSEEK_API_KEY", ""),
+		Addr:        getEnv("ADDR", ":8080"),
+		APIKey:      getEnv("DEEPSEEK_API_KEY", ""),
+		ChatAPIKey:  getEnv("CHAT_API_KEY", ""),
 		Registry: RegistryConfig{
 			AgentsFile: getEnv("AGENTS_FILE", "config/agents.yaml"),
 			ToolsFile:  getEnv("TOOLS_FILE", "config/tools.yaml"),
+		},
+		UE5: UE5Config{
+			APIKey:          getEnv("UE5_API_KEY", ""),
+			RegistryDir:     getEnv("UE5_REGISTRY_DIR", "./registry"),
+			DefaultEndpoint: getEnv("UE5_DEFAULT_ENDPOINT", ""),
 		},
 		BaseURL:         getEnv("DEEPSEEK_BASE_URL", DeepSeekBaseURL),
 		ModelName:       getEnv("MODEL_NAME", types.ModelV4Flash),

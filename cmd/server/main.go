@@ -7,48 +7,98 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/cloudwego/hertz/pkg/network/standard"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/config"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/registry"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/llm"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/mcp"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/server/handler"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
 )
-
-func Quit(h *server.Hertz) {
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
-
-	<-quit
-	log.Println("正在关闭...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	h.Shutdown(ctx)
-}
 
 func main() {
 	cfg := config.Load()
 
-	// 从 YAML 文件加载 Agent / Tool 注册(存储位置见 config.Registry)。
-	// 先加载全局工具表,再按引用名称把工具绑定到各 Agent 的可调用范围。
-	toolRegistry, err := registry.LoadTools(cfg.Registry.ToolsFile)
-	if err != nil {
-		log.Fatalf("加载 Tool 注册失败: %v", err)
+	// ── UE5 实例注册中心 + 变更广播 ─────────────────────────────────────────
+	hub := mcp.NewHub()
+	mgr := ue5.NewManager(
+		ue5.WithRegistryDir(cfg.UE5.RegistryDir),
+		ue5.WithChangeListener(hub.OnChange),
+	)
+	if err := mgr.Restore(); err != nil {
+		log.Fatalf("恢复 UE5 实例注册失败: %v", err)
 	}
-	agentRegistry, err := registry.LoadAgents(cfg.Registry.AgentsFile, toolRegistry)
-	if err != nil {
-		log.Fatalf("加载 Agent 注册失败: %v", err)
+	instances := mgr.InstanceIDs()
+	if len(instances) > 0 {
+		hlog.Infof("已从 %s 恢复 %d 个 UE5 实例", cfg.UE5.RegistryDir, len(instances))
 	}
 
-	log.Printf("已从 %s 注册 %d 个 Tool", cfg.Registry.ToolsFile, len(toolRegistry.All()))
-	log.Printf("已从 %s 注册 %d 个 Agent", cfg.Registry.AgentsFile, len(agentRegistry.All()))
+	// ── UE5 工具执行转发客户端 ──────────────────────────────────────────────
+	cli := &ue5.Client{
+		DefaultEndpoint: cfg.UE5.DefaultEndpoint,
+		HTTPTimeout:     cfg.HTTPTimeout,
+		HTTPClient:      cfg.HTTPClient,
+	}
 
+	// ── 处理器 ───────────────────────────────────────────────────────────────
+	ue5Handler := handler.NewUE5Handler(mgr, &cfg.UE5)
+	mcpServer := mcp.NewServer(mgr, cli)
+	mcpHandler := handler.NewMCPHandler(mcpServer, hub)
+	chatHandler := handler.NewChatHandler(mgr, cli, llm.NewDeepseekProvider(cfg), false)
+
+	// ── Hertz 服务器 ─────────────────────────────────────────────────────────
 	h := server.Default(
 		server.WithHostPorts(cfg.Addr),
 		server.WithExitWaitTime(5*time.Second),
+		server.WithTransport(standard.NewTransporter),
 	)
 
-	go Quit(h)
+	// MCP 入口(未来 agent 通过 /mcp/{instance_id} 访问该 UE5 实例的能力)
+	mcpGroup := h.Group("/mcp")
+	mcpHandler.RegisterRoutes(mcpGroup)
 
+	// NPC 对话入口(Bridge 自身跑 ReAct:玩家 → DeepSeek → 工具 → UE5)
+	chatGroup := h.Group("/api/chat")
+	chatGroup.Use(chatHandler.AuthMiddleware(cfg))
+	chatGroup.POST("", chatHandler.Chat)
+
+	// UE5 管理接口(UE5 插件通过 /api/v1/ue5/* 动态注册 agent/tool)
+	ue5Group := h.Group("/api/v1/ue5")
+	ue5Group.Use(ue5Handler.AuthMiddleware())
+	ue5Group.Use(logMiddleware())
+	ue5Handler.RegisterRoutes(ue5Group)
+
+	// 健康检查
+	h.GET("/api/v1/health", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, map[string]any{
+			"status":    "ok",
+			"instances": len(mgr.InstanceIDs()),
+		})
+	})
+
+	// 优雅退出
+	go func() {
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, os.Interrupt)
+		<-quit
+		hlog.Info("正在关闭服务器...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.Shutdown(ctx)
+	}()
+
+	hlog.Infof("TheDemiuge-Bridge 启动: 监听 %s", cfg.Addr)
 	h.Spin()
+}
+
+// logMiddleware 简单的访问日志(UE5 管理接口)。
+func logMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		c.Next(ctx)
+		hlog.Infof("[UE5-API] %s %s -> %d", c.Request.Method(), c.Request.Path(), c.Response.StatusCode())
+	}
 }
