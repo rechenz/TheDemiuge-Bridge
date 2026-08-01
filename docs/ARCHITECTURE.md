@@ -1,7 +1,7 @@
 # TheDemiuge-Bridge 架构设计
 
-> 最后更新：2026-07-31
-> 状态：重构中（types/config 完成；llm/agent/server 待重建；2026-07-31 架构评审完成：回调式 LLM 入口 / schema 反射 / SSE 批量 / service 延后）
+> 最后更新：2026-08-01
+> 状态：重构中（types/config/llm 完成；agent/server 待重建）
 
 ---
 
@@ -227,21 +227,26 @@ schema, _ := FromStruct(WaveHandArgs{})
 - `Execute(ctx, args)` 的 args 用 `ToolCallFunction.UnmarshalArguments(v)` 解码到具体 struct
 - 模型生成的参数不一定合法，执行前必须校验（strict 模式 + 反射校验双重保障）
 
-### 3.5 LLM Client — `internal/llm/`（待重写）
+### 3.5 LLM Client — `internal/llm/` ✅（已完成 2026-08-01）
 
-> ⚠️ 2026-07-31 工作区已删除旧实现（deepseek.go / completion.go），
-> 待基于新的 `internal/types` 完整类型体系重建。
+2026-08-01 基于新的 `internal/types` 完整类型体系重建完成，
+补齐 Tools 通道、真实 finish_reason、BaseURL 可配置、http.Client 可注入、
+错误分类与 httptest 单测。
 
 LLM 提供者抽象层，统一入口。
 
 ```
 internal/llm/
-├── client.go     # 统一入口（stream/non-stream）
-├── deepseek.go   # DeepSeek 实现（用 types.DeepseekChatRequest/Response）
-└── provider.go   # Provider 接口
+├── provider.go           # Provider 接口（上层唯一依赖）
+├── deepseek_provider.go  # DeepSeek Provider 实现（NewDeepseekProvider）
+└── deepseek/             # DeepSeek 客户端实现
+    ├── deepseek.go       # Client 结构体 + 错误分类哨兵 + 流式 SSE 解析
+    ├── chat.go           # 非流式入口 Chat
+    ├── chat_stream.go    # 流式入口 ChatStream
+    └── *_test.go         # httptest 单测（流式解析 / tool_call 拼接 / 错误分类）
 ```
 
-**关键设计：两个入口，不强行统一（2026-07-31 修订）**
+**关键设计：两个入口，不强行统一（2026-07-31 修订，2026-08-01 落地）**
 
 ~~旧设计：无论流式/非流式都返回 `<-chan Token`~~ —— channel 有泄漏风险、错误传递别扭、tool call 混在流里判断麻烦。改为：
 
@@ -271,17 +276,21 @@ type Token struct {
 **设计要点：**
 - 非流式：一次调用，直接返回 `ChatResponse`（含 message + tool_calls + usage）
 - 流式：回调收增量，**tool_calls 由客户端内部拼接**，流结束时随响应返回——Agent 层不用关心 DeepSeek 的 delta 协议细节
-- 错误处理：HTTP/网络错误直接 return error；API 错误解析为 `types.DeepSeekAPIError` 供上层重试/降级
+- **finish_reason 保留真实值**：流式循环按 choice index 收集最后出现的 finish_reason（tool_calls / length / content_filter 等），不再硬编码 stop——Agent 层据此判断"是否执行工具 / 是否截断"
+- **base URL 可配置**：`DEEPSEEK_BASE_URL` 环境变量 / `config.BaseURL`，默认 DeepSeek 官方地址；换 OpenAI / 本地兼容服务零改动
+- **http.Client 可注入**：`config.HTTPClient`（单测注入 httptest 客户端）+ `config.HTTPTimeout`（默认 60s）
+- **错误分类可编程**：API 错误解析为 `*deepseek.ClassifiedError`，Unwrap 出分类哨兵 `ErrAuth`（401/403）/ `ErrRateLimit`（429）/ `ErrServer`（5xx）/ `ErrTimeout`，上层用 `errors.Is` 判断重试/降级
+- 单测：httptest mock 服务端，覆盖流式解析、tool_call 增量拼接、finish_reason 聚合、错误分类
 
 ### 3.6 Memory System — `internal/memory/`（TODO）
 
 长期记忆管理。**2026-07-31 修订：记忆拆为三条独立路线，不要混着做：**
 
-| 路线 | 技术方案 | 阶段 | 状态 |
-|------|----------|------|------|
-| 对话记忆 | 上下文窗口（LLM 原生，`State.Messages`） | P0 即生效 | 无需额外开发 |
-| 长期记忆 | 摘要 + 事实库召回 → 注入 prompt（RAG 路线） | P2 | TODO |
-| 蒸馏记忆 | 离线微调 → LoRA weight dump（与 weight-masking 实验联动） | P4 | 远期 |
+| 路线     | 技术方案                                                  | 阶段      | 状态         |
+| -------- | --------------------------------------------------------- | --------- | ------------ |
+| 对话记忆 | 上下文窗口（LLM 原生，`State.Messages`）                  | P0 即生效 | 无需额外开发 |
+| 长期记忆 | 摘要 + 事实库召回 → 注入 prompt（RAG 路线）               | P2        | TODO         |
+| 蒸馏记忆 | 离线微调 → LoRA weight dump（与 weight-masking 实验联动） | P4        | 远期         |
 
 **接口（P2 落地）：**
 ```go
@@ -369,15 +378,15 @@ internal/types/
 
 ## 五、当前状态对比（2026-07-31 更新）
 
-| 模块 | 应有 | 现有 | 状态 |
-|------|------|------|------|
-| `types/` | 完整 API 类型体系 | `message.go` + `deepseek.go` + `tools.go`（737 行） | ✅ 已重写，未提交 |
-| `config/` | 配置加载 + 请求映射 | `config.go`（ToDeepseekRequest） | ✅ 已重写，未提交 |
-| `server/` | Hertz + handler | `cmd/server/main.go` 空壳 | ❌ 待重建 |
-| `agent/` | Agent Run + Prompt Builder | 无 | ❌ 待重建（已删） |
-| `tool/` | 注册 + 工具实现 | 无 | ❌ 待重建（已删） |
-| `llm/` | 统一入口 | 无（旧实现已删） | ❌ 待重写 |
-| `store/` | NPC/Session/Memory 接口 | 无 | ❌ 未开工（P1，接口隔离为微服务学习方向预留） |
+| 模块      | 应有                       | 现有                                                | 状态                                         |
+| --------- | -------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| `types/`  | 完整 API 类型体系          | `message.go` + `deepseek.go` + `tools.go`（737 行） | ✅ 已重写，未提交                             |
+| `config/` | 配置加载 + 请求映射        | `config.go`（ToDeepseekRequest）                    | ✅ 已重写，未提交                             |
+| `server/` | Hertz + handler            | `cmd/server/main.go` 空壳                           | ❌ 待重建                                     |
+| `agent/`  | Agent Run + Prompt Builder | 无                                                  | ❌ 待重建（已删）                             |
+| `tool/`   | 注册 + 工具实现            | 无                                                  | ❌ 待重建（已删）                             |
+| `llm/`    | 统一入口                   | provider + deepseek/（含单测）                      | ✅ 已重建（2026-08-01）                       |
+| `store/`  | NPC/Session/Memory 接口    | 无                                                  | ❌ 未开工（P1，接口隔离为微服务学习方向预留） |
 
 **当前可编译**（`go build ./...` 通过），但运行是空服务器。
 
@@ -401,7 +410,7 @@ internal/types/
 - [x] 提交 types/config 地基版本（待做）
 
 **待完成：**
-1. [ ] LLM 客户端重写（`internal/llm/`）：**回调式两入口** `Chat`（非流式）+ `ChatStream`（流式回调），tool_calls 客户端内部拼接，基于新 types
+1. [x] LLM 客户端重写（`internal/llm/`）：**回调式两入口** + Tools 通道 + finish_reason 保留 + 错误分类 + 单测（2026-08-01）
 2. [ ] Agent 层重建（`internal/agent/`）：Run 循环 + Prompt Builder + tool_calls 循环（流结束再判断工具调用）
 3. [ ] Tool 系统（`internal/tool/`）：Registry + **FromStruct schema 反射** + 示例工具（time.go）
 4. [ ] Server 层重建（`internal/server/`）：chat handler + 路由注册 + main.go 接线（P0 不设 service 层）
@@ -476,14 +485,14 @@ data: {"type":"done"}
 
 **事件类型：**
 
-| type | 含义 | 字段 |
-|------|------|------|
-| `text` | 文本增量（批） | `content` |
-| `reasoning` | 推理内容增量（可选，思考模式） | `content` |
-| `tool_call` | 工具调用（客户端内部拼接完成后发出） | `name`, `args` |
-| `error` | 错误事件（新增） | `code`, `message` |
-| `done` | 流结束 | — |
-| `usage` | token 用量（可选，需 stream_options.include_usage） | `prompt_tokens`, `completion_tokens` |
+| type        | 含义                                                | 字段                                 |
+| ----------- | --------------------------------------------------- | ------------------------------------ |
+| `text`      | 文本增量（批）                                      | `content`                            |
+| `reasoning` | 推理内容增量（可选，思考模式）                      | `content`                            |
+| `tool_call` | 工具调用（客户端内部拼接完成后发出）                | `name`, `args`                       |
+| `error`     | 错误事件（新增）                                    | `code`, `message`                    |
+| `done`      | 流结束                                              | —                                    |
+| `usage`     | token 用量（可选，需 stream_options.include_usage） | `prompt_tokens`, `completion_tokens` |
 
 **错误示例：**
 ```

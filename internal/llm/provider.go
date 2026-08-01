@@ -13,10 +13,11 @@ type Provider interface {
 	// Chat 非流式对话入口:一次调用,直接返回完整响应
 	// (含 message + tool_calls + usage)。
 	// messages 为空时返回 (nil, nil)。
-	Chat(ctx context.Context, messages []types.Message) (*types.ChatResponse, error)
+	// opts 为单次对话可选参数(工具定义 / 单次覆盖项),nil 表示全部使用默认配置。
+	Chat(ctx context.Context, messages []types.Message, opts *types.ChatOptions) (*types.ChatResponse, error)
 
 	// ChatStream 流式对话入口:逐 chunk 回调 onChunk 推送增量,
 	// 流结束后返回聚合的完整响应,错误经返回值传递。
 	// 回调返回错误时立即中止。messages 为空时返回 (nil, nil)。
-	ChatStream(ctx context.Context, messages []types.Message, onChunk func(*types.ChatCompletionStreamChunk) error) (*types.ChatResponse, error)
+	ChatStream(ctx context.Context, messages []types.Message, opts *types.ChatOptions, onChunk func(*types.ChatCompletionStreamChunk) error) (*types.ChatResponse, error)
 }

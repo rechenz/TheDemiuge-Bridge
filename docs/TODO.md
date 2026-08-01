@@ -1,6 +1,6 @@
 # TheDemiuge-Bridge 任务追踪
 
-> 最后更新：2026-07-31（架构评审后同步）
+> 最后更新：2026-08-01（LLM 层全量完善并提交）
 
 ---
 
@@ -17,11 +17,12 @@
 
 ### 📌 待办
 
-- [ ] LLM 客户端重写 `internal/llm/`（旧 deepseek.go/completion.go 已删）
+- [X] LLM 客户端重写 `internal/llm/`（旧 deepseek.go/completion.go 已删）
   - [X] **回调式两入口**：`Chat(ctx, req) (*ChatResponse, error)` 非流式 + `ChatStream(ctx, req, onToken)` 流式
   - [X] tool_calls 增量在客户端内部拼接，流结束随响应返回，不混在 Token 里
-  - [ ] `provider.go` — Provider 接口抽象
-  - [ ] 错误处理：DeepSeekAPIError → 重试/降级策略
+  - [X] `provider.go` — Provider 接口抽象
+  - [X] 错误处理：DeepSeekAPIError → 重试/降级策略
+  - [X] **2026-08-01 全量完善**：Tools 通道（ChatOptions）+ finish_reason 保留 + BaseURL 可配置 + http.Client 可注入 + 错误分类哨兵 + httptest 单测
 - [ ] Agent 层重建 `internal/agent/`（已删，需重建）
   - [ ] `agent.go` — Run 循环（LLM → 流结束判断 tool_calls → 执行 → 回馈 → 再请求）
   - [ ] `builder.go` — NPC 角色 prompt 组装

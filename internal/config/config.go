@@ -1,12 +1,18 @@
 package config
 
 import (
+	"crypto/tls"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
 )
+
+// DeepSeekBaseURL DeepSeek 官方 Chat Completions 接口基地址。
+const DeepSeekBaseURL = "https://api.deepseek.com/chat/completions"
 
 // Config 服务运行配置。
 type Config struct {
@@ -14,6 +20,9 @@ type Config struct {
 	Addr string
 	// APIKey LLM 提供方 API Key
 	APIKey string
+	// BaseURL LLM 提供方 Chat Completions 接口地址,默认 DeepSeek 官方地址。
+	// 换 OpenAI / 本地模型等兼容服务时只需改这里,上层零改动。
+	BaseURL string
 	// ModelName 模型名:deepseek-v4-flash 或 deepseek-v4-pro
 	ModelName string
 	// MaxTokens 限制一次请求中模型生成 completion 的最大 token 数
@@ -36,6 +45,11 @@ type Config struct {
 	Stream bool
 	// StreamOptions 流式输出选项;仅 Stream 为 true 时有意义
 	StreamOptions *types.StreamOptions
+	// HTTPTimeout 单次 LLM HTTP 请求超时时间。0 表示不设超时。
+	HTTPTimeout time.Duration
+	// HTTPClient 可选注入的自定义 http.Client(如带 Transport 的测试客户端)。
+	// nil 时使用带 HTTPTimeout 的默认客户端。
+	HTTPClient *http.Client
 }
 
 // Load 从环境变量加载配置,缺失项使用默认值。
@@ -44,6 +58,7 @@ func Load() *Config {
 	return &Config{
 		Addr:            getEnv("ADDR", ":8080"),
 		APIKey:          getEnv("DEEPSEEK_API_KEY", ""),
+		BaseURL:         getEnv("DEEPSEEK_BASE_URL", DeepSeekBaseURL),
 		ModelName:       getEnv("MODEL_NAME", types.ModelV4Flash),
 		MaxTokens:       getEnvInt("MAX_TOKENS", 4096),
 		Temperature:     getEnvFloat32("TEMPERATURE", 0.7),
@@ -55,12 +70,29 @@ func Load() *Config {
 		UserID:          getEnv("USER_ID", ""),
 		Stream:          getEnvBool("STREAM", true),
 		StreamOptions:   newStreamOptions(getEnvBool("STREAM_INCLUDE_USAGE", false)),
+		HTTPTimeout:     getEnvDuration("HTTP_TIMEOUT", 60*time.Second),
+		HTTPClient:      newHTTPClient(getEnv("HTTP_CLIENT", "")),
 	}
+}
+
+// newHTTPClient 根据环境变量构造自定义 http.Client。
+// 当前仅支持 "insecure" —— 跳过 TLS 校验(本地 http mock 联调用);
+// 其余值返回 nil(使用默认客户端)。
+func newHTTPClient(v string) *http.Client {
+	if v == "insecure" {
+		return &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
+	return nil
 }
 
 // ToChatRequest 将配置映射为 Chat Completions 请求体。
 // messages 为空时返回 nil,由调用方保证至少 1 条消息。
-func (c *Config) ToChatRequest(messages []types.Message) *types.ChatRequest {
+// opts 为单次对话可选参数:nil 或空字段不产生效果。
+func (c *Config) ToChatRequest(messages []types.Message, opts *types.ChatOptions) *types.ChatRequest {
 	if len(messages) == 0 || c == nil {
 		return nil
 	}
@@ -77,15 +109,41 @@ func (c *Config) ToChatRequest(messages []types.Message) *types.ChatRequest {
 		UserID:          c.UserID,
 	}
 
-	if c.MaxTokens > 0 {
+	// 单次覆盖项:非零值优先于 config
+	if opts != nil {
+		if len(opts.Tools) > 0 {
+			req.Tools = opts.Tools
+		}
+		if opts.ToolChoice != nil {
+			req.ToolChoice = opts.ToolChoice
+		}
+		if opts.Model != "" {
+			req.Model = opts.Model
+		}
+		if opts.MaxTokens != nil {
+			req.MaxTokens = opts.MaxTokens
+		}
+		if opts.Temperature != nil {
+			req.Temperature = opts.Temperature
+		}
+		if opts.TopP != nil {
+			req.TopP = opts.TopP
+		}
+	}
+
+	if req.Model == "" {
+		req.Model = c.ModelName
+	}
+
+	if req.MaxTokens == nil && c.MaxTokens > 0 {
 		mt := c.MaxTokens
 		req.MaxTokens = &mt
 	}
-	if c.Temperature > 0 {
+	if req.Temperature == nil && c.Temperature > 0 {
 		t := c.Temperature
 		req.Temperature = &t
 	}
-	if c.TopP > 0 {
+	if req.TopP == nil && c.TopP > 0 {
 		p := c.TopP
 		req.TopP = &p
 	}
@@ -171,4 +229,16 @@ func getEnvBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
