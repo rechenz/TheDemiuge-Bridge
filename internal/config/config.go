@@ -14,15 +14,6 @@ import (
 // DeepSeekBaseURL DeepSeek 官方 Chat Completions 接口基地址。
 const DeepSeekBaseURL = "https://api.deepseek.com/chat/completions"
 
-// RegistryConfig 注册存储位置配置。
-// Agent 与 Tool 的定义均通过 YAML 文件读写,由启动时加载注册。
-type RegistryConfig struct {
-	// AgentsFile Agent 定义 YAML 文件路径,默认 config/agents.yaml
-	AgentsFile string
-	// ToolsFile Tool 定义 YAML 文件路径,默认 config/tools.yaml
-	ToolsFile string
-}
-
 // UE5Config UE5 实例接入配置。
 // UE5 游戏服务器通过外部管理接口动态注册 agent/tool,
 // Bridge 侧按实例隔离存储并转发工具调用。
@@ -47,8 +38,6 @@ type Config struct {
 	// ChatAPIKey /api/chat 接口鉴权 key(X-API-Key header)。
 	// 为空时不鉴权(本地联调);非空时校验失败返回 401。
 	ChatAPIKey string
-	// Registry Agent / Tool 注册的 YAML 存储位置
-	Registry RegistryConfig
 	// UE5 UE5 实例接入配置(动态注册 + 转发)
 	UE5 UE5Config
 	// BaseURL LLM 提供方 Chat Completions 接口地址,默认 DeepSeek 官方地址。
@@ -87,13 +76,9 @@ type Config struct {
 func Load() *Config {
 	thinking := types.ThinkingEnabled
 	return &Config{
-		Addr:        getEnv("ADDR", ":8080"),
-		APIKey:      getEnv("DEEPSEEK_API_KEY", ""),
-		ChatAPIKey:  getEnv("CHAT_API_KEY", ""),
-		Registry: RegistryConfig{
-			AgentsFile: getEnv("AGENTS_FILE", "config/agents.yaml"),
-			ToolsFile:  getEnv("TOOLS_FILE", "config/tools.yaml"),
-		},
+		Addr:       getEnv("ADDR", ":8080"),
+		APIKey:     getEnv("DEEPSEEK_API_KEY", ""),
+		ChatAPIKey: getEnv("CHAT_API_KEY", ""),
 		UE5: UE5Config{
 			APIKey:          getEnv("UE5_API_KEY", ""),
 			RegistryDir:     getEnv("UE5_REGISTRY_DIR", "./registry"),

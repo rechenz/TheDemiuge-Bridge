@@ -45,10 +45,13 @@ func main() {
 	}
 
 	// ── 处理器 ───────────────────────────────────────────────────────────────
+	// ue5.RegistryAdapter 把"UE5 注册中心 + HTTP 转发"实现为通用 mcp.Registry,
+	// 注入 MCP Server 与 ChatHandler——协议层不依赖任何特定后端。
 	ue5Handler := handler.NewUE5Handler(mgr, &cfg.UE5)
-	mcpServer := mcp.NewServer(mgr, cli)
+	adapter := ue5.NewRegistryAdapter(mgr, cli)
+	mcpServer := mcp.NewServer(adapter)
 	mcpHandler := handler.NewMCPHandler(mcpServer, hub)
-	chatHandler := handler.NewChatHandler(mgr, cli, llm.NewDeepseekProvider(cfg), false)
+	chatHandler := handler.NewChatHandler(adapter, llm.NewDeepseekProvider(cfg), false)
 
 	// ── Hertz 服务器 ─────────────────────────────────────────────────────────
 	h := server.Default(

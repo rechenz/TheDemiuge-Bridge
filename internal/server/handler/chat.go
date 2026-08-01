@@ -14,9 +14,8 @@ import (
 	"github.com/rechenz/TheDemiuge-Bridge/internal/agent"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/config"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/llm"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/tool"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/mcp"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
 )
 
 // ── 请求/事件协议 ──────────────────────────────────────────────────────────
@@ -83,11 +82,11 @@ type errorEvent struct {
 // ChatHandler 处理 NPC 对话入口。
 // 每个 (instance, agent) 对缓存一个 Runner(内含 Agent 会话上下文),
 // 同一 agent 的多次请求共享历史;不同会话由 SessionID 隔离。
+// 依赖 mcp.Registry 通用接口:工具定义实时读取、执行委托给注册实现。
 type ChatHandler struct {
 	mu       sync.Mutex
 	runners  map[string]*chatEntry // key: instanceID + "/" + agentName
-	mgr      *ue5.Manager
-	cli      *ue5.Client
+	reg      mcp.Registry
 	provider llm.Provider
 	debug    bool
 }
@@ -95,7 +94,7 @@ type ChatHandler struct {
 // chatEntry 一个 agent 的 Runner 及其并发锁。
 // Runner 本身不保证并发安全,同 agent 的请求串行执行。
 // 持有 (instanceID, agentName) 以便每次请求前同步最新的 agent 定义与
-// 工具列表(UE5 管理接口热更新后,Runner 内的 Agent 需跟随刷新)。
+// 工具列表(注册中心热更新后,Runner 内的 Agent 需跟随刷新)。
 type chatEntry struct {
 	mu         sync.Mutex
 	runner     *agent.Runner
@@ -104,11 +103,10 @@ type chatEntry struct {
 }
 
 // NewChatHandler 构造对话处理器。
-func NewChatHandler(mgr *ue5.Manager, cli *ue5.Client, provider llm.Provider, debug bool) *ChatHandler {
+func NewChatHandler(reg mcp.Registry, provider llm.Provider, debug bool) *ChatHandler {
 	return &ChatHandler{
 		runners:  make(map[string]*chatEntry),
-		mgr:      mgr,
-		cli:      cli,
+		reg:      reg,
 		provider: provider,
 		debug:    debug,
 	}
@@ -145,7 +143,7 @@ func (h *ChatHandler) Chat(ctx context.Context, c *app.RequestContext) {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	// 每次请求前同步最新 agent 定义与工具列表(UE5 侧热更新后实时生效)
+	// 每次请求前同步最新 agent 定义与工具列表(注册中心热更新后实时生效)
 	if err := h.refreshRunner(entry); err != nil {
 		_ = writer.WriteEvent("", EventError, mustJSON(errorEvent{Type: EventError, Error: err.Error()}))
 		// agent 已被删除:移除缓存,使下次请求重新构建
@@ -170,18 +168,18 @@ func (h *ChatHandler) Chat(ctx context.Context, c *app.RequestContext) {
 // 调用方需持有 entry.mu。
 // 返回错误时(agent 已被删除)调用方应移除此缓存条目,使下次请求重建。
 func (h *ChatHandler) refreshRunner(entry *chatEntry) error {
-	agentDef, ok := h.mgr.GetAgent(entry.instanceID, entry.agentName)
+	def, ok := h.reg.GetAgent(entry.instanceID, entry.agentName)
 	if !ok {
 		return fmt.Errorf("agent %q 未在实例 %q 中注册", entry.agentName, entry.instanceID)
 	}
 
 	a := entry.runner.GetAgent()
-	a.SetSystemPrompt(agentDef.SystemPrompt)
+	a.SetSystemPrompt(def.SystemPrompt)
 
-	tools := make([]types.Tool, 0, len(agentDef.Tools))
-	for _, name := range agentDef.Tools {
-		if reg, ok := h.mgr.GetTool(entry.instanceID, name); ok {
-			tools = append(tools, reg.ToTool())
+	tools := make([]types.Tool, 0, len(def.ToolNames))
+	for _, name := range def.ToolNames {
+		if t, ok := h.reg.GetTool(entry.instanceID, name); ok {
+			tools = append(tools, t)
 		}
 	}
 	a.SetTools(tools...)
@@ -198,33 +196,50 @@ func (h *ChatHandler) getOrCreateRunner(instanceID, agentName string) (*chatEntr
 		return e, nil
 	}
 
-	// 构建 Agent(从实例注册空间取定义 + 工具)
-	agentDef, ok := h.mgr.GetAgent(instanceID, agentName)
+	// 构建 Agent(从注册空间取定义 + 工具)
+	def, ok := h.reg.GetAgent(instanceID, agentName)
 	if !ok {
+		// 实例不存在与 agent 不存在统一返回 agent 未注册
 		return nil, fmt.Errorf("agent %q 未在实例 %q 中注册", agentName, instanceID)
 	}
-	inst, ok := h.mgr.GetInstance(instanceID)
-	if !ok {
-		return nil, fmt.Errorf("实例 %q 不存在", instanceID)
-	}
 
-	a := types.NewAgent(agentDef.Name, types.AgentType(agentDef.Type))
-	a.SetSystemPrompt(agentDef.SystemPrompt)
+	a := types.NewAgent(def.Name, types.AgentType(def.Type))
+	a.SetSystemPrompt(def.SystemPrompt)
 
 	var tools []types.Tool
-	for _, name := range agentDef.Tools {
-		if reg, ok := h.mgr.GetTool(instanceID, name); ok {
-			tools = append(tools, reg.ToTool())
+	for _, name := range def.ToolNames {
+		if t, ok := h.reg.GetTool(instanceID, name); ok {
+			tools = append(tools, t)
 		}
 	}
 	a.SetTools(tools...)
 
-	executor := tool.NewUE5Executor(h.mgr, h.cli, inst)
+	executor := &registryExecutor{reg: h.reg, instanceID: instanceID}
 	runner := agent.NewRunner(a, h.provider, executor, agent.WithDebug(h.debug))
 
 	e := &chatEntry{runner: runner, instanceID: instanceID, agentName: agentName}
 	h.runners[key] = e
 	return e, nil
+}
+
+// ── ToolExecutor 适配器 ─────────────────────────────────────────────────────
+
+// registryExecutor 实现 agent.ToolExecutor,把模型发起的工具调用
+// 委托给 mcp.Registry.ExecuteTool(由注册实现决定如何执行,如 UE5 转发)。
+type registryExecutor struct {
+	reg        mcp.Registry
+	instanceID string
+}
+
+// Execute 解析参数并委托注册实现执行工具。
+func (e *registryExecutor) Execute(ctx context.Context, call types.ToolCall) (string, error) {
+	args := map[string]any{}
+	if call.Function.Arguments != "" {
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return "", fmt.Errorf("工具 %q 参数解析失败: %v", call.Function.Name, err)
+		}
+	}
+	return e.reg.ExecuteTool(ctx, e.instanceID, call.Function.Name, args)
 }
 
 // ── EventSink 实现 ──────────────────────────────────────────────────────────

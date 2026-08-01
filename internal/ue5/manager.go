@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/rechenz/TheDemiuge-Bridge/internal/mcp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,29 +26,26 @@ type toolsFile struct {
 
 // ── 变更通知 ────────────────────────────────────────────────────────────────
 
-// ChangeKind 一次注册变更的种类。
-type ChangeKind string
+// ChangeKind 一次注册变更的种类(复用 mcp 协议层的通用定义)。
+type ChangeKind = mcp.ChangeKind
 
+// 变更种类常量(透传 mcp.ChangeTool / mcp.ChangeAgent)。
 const (
 	// ChangeTool 工具变更(tools/list_changed 广播)
-	ChangeTool ChangeKind = "tool"
+	ChangeTool = mcp.ChangeTool
 	// ChangeAgent agent 变更(agents/list_changed 广播)
-	ChangeAgent ChangeKind = "agent"
+	ChangeAgent = mcp.ChangeAgent
 )
 
-// Change 一次注册变更信息。
-// Kind 为变更种类,InstanceID 与 Name 定位被变更的条目。
-type Change struct {
-	Kind       ChangeKind `json:"kind"`
-	InstanceID string     `json:"instance_id"`
-	Name       string     `json:"name"`
-}
+// Change 一次注册变更信息(复用 mcp 协议层的通用定义)。
+type Change = mcp.Change
 
 // ChangeListener 注册变更回调。
 // Manager 每次 tool/agent 注册或删除后调用,用于广播
 // tools/list_changed / agents/list_changed 通知。
 // 回调在 Manager 锁内同步执行;必须立即返回,不得阻塞。
-type ChangeListener func(Change)
+// 回调签名为 mcp 协议层通用类型,不依赖任何特定后端。
+type ChangeListener func(mcp.Change)
 
 // ── Manager ─────────────────────────────────────────────────────────────────
 

@@ -97,7 +97,7 @@ func TestChatIntegration(t *testing.T) {
 
 	// 3. 起 Hertz 服务
 	cli := &ue5.Client{HTTPClient: ue5Srv.Client()}
-	chatHandler := NewChatHandler(mgr, cli, &mockProvider{}, false)
+	chatHandler := NewChatHandler(ue5.NewRegistryAdapter(mgr, cli), &mockProvider{}, false)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

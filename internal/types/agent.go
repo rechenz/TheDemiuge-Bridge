@@ -1,9 +1,7 @@
 // Package types 定义 Agent 及其状态、会话上下文的类型体系。
 // Agent 是参与对话的最小单元(游戏角色 / 系统),持有自身状态与
-// 每个 session 独立的对话上下文;AgentRegistry 提供多 Agent 的统一管理。
+// 每个 session 独立的对话上下文。
 package types
-
-import "fmt"
 
 // ── Agent 类型 ──────────────────────────────────────────────────────────────
 
@@ -84,7 +82,7 @@ func (s *AgentState) RemoveSession(sessionID string) bool {
 
 // Agent 是参与对话的最小单元,存储自身状态与每个 session 的上下文。
 type Agent struct {
-	// Name Agent 名称,同一 AgentRegistry 内唯一
+	// Name Agent 名称,同一实例内唯一
 	Name string `json:"name"`
 	// Type Agent 种类:actor(游戏角色)或 system(系统)
 	Type AgentType `json:"type"`
@@ -127,13 +125,13 @@ func WithTools(tools ...Tool) AgentOption {
 
 // SetTools 热更新该 Agent 的可调用 tool 列表。
 // 与 WithTools 不同,SetTools 是运行时可变接口,
-// 供 UE5 侧动态更新工具定义后同步到 Agent 的可调用范围。
+// 供注册中心动态更新工具定义后同步到 Agent 的可调用范围。
 func (a *Agent) SetTools(tools ...Tool) {
 	a.Tools = tools
 }
 
 // SetSystemPrompt 热更新该 Agent 的角色 prompt。
-// 供 UE5 侧动态更新 agent 定义后同步。
+// 供注册中心动态更新 agent 定义后同步。
 func (a *Agent) SetSystemPrompt(prompt string) {
 	a.SystemPrompt = prompt
 }
@@ -191,47 +189,4 @@ func (a *Agent) RemoveSession(sessionID string) bool {
 		return false
 	}
 	return a.State.RemoveSession(sessionID)
-}
-
-// ── 多 Agent 管理 ───────────────────────────────────────────────────────────
-
-// AgentRegistry 统一管理一组 Agent(如一场游戏的所有 NPC 与系统 Agent)。
-// 保证 Agent 名称在注册表内唯一。
-type AgentRegistry struct {
-	agents map[string]*Agent
-}
-
-// NewAgentRegistry 构造空的 Agent 注册表。
-func NewAgentRegistry() *AgentRegistry {
-	return &AgentRegistry{agents: make(map[string]*Agent)}
-}
-
-// Register 注册一个 Agent;名称冲突时返回错误。
-func (r *AgentRegistry) Register(a *Agent) error {
-	if a == nil {
-		return fmt.Errorf("不能注册 nil Agent")
-	}
-	if a.Name == "" {
-		return fmt.Errorf("Agent 名称不能为空")
-	}
-	if _, ok := r.agents[a.Name]; ok {
-		return fmt.Errorf("Agent %q 已注册", a.Name)
-	}
-	r.agents[a.Name] = a
-	return nil
-}
-
-// Get 按名称获取 Agent;不存在时返回 (nil, false)。
-func (r *AgentRegistry) Get(name string) (*Agent, bool) {
-	a, ok := r.agents[name]
-	return a, ok
-}
-
-// All 返回注册表内全部 Agent,顺序不保证。
-func (r *AgentRegistry) All() []*Agent {
-	all := make([]*Agent, 0, len(r.agents))
-	for _, a := range r.agents {
-		all = append(all, a)
-	}
-	return all
 }

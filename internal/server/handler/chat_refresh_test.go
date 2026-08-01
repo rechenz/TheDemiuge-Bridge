@@ -77,7 +77,8 @@ func TestChatHandler_ToolHotReload(t *testing.T) {
 	}
 
 	provider := &capturingProvider{}
-	h := NewChatHandler(mgr, nil, provider, false)
+	adapter := ue5.NewRegistryAdapter(mgr, nil)
+	h := NewChatHandler(adapter, provider, false)
 
 	// 1. 创建 Runner 缓存
 	entry, err := h.getOrCreateRunner(inst.ID, "npc")
@@ -121,7 +122,7 @@ func TestChatHandler_PromptHotReload(t *testing.T) {
 		t.Fatalf("注册 agent 失败: %v", err)
 	}
 
-	h := NewChatHandler(mgr, nil, &capturingProvider{}, false)
+	h := NewChatHandler(ue5.NewRegistryAdapter(mgr, nil), &capturingProvider{}, false)
 	entry, err := h.getOrCreateRunner(inst.ID, "npc")
 	if err != nil {
 		t.Fatalf("getOrCreateRunner 失败: %v", err)

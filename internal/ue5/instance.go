@@ -77,15 +77,6 @@ func (i *Instance) toolsSnapshot() []ToolReg {
 	return out
 }
 
-// toolsAsTypes 返回全部工具的请求侧定义快照,供 MCP tools/list 与 LLM 使用。
-func (i *Instance) toolsAsTypes() []types.Tool {
-	out := make([]types.Tool, 0, len(i.tools))
-	for _, t := range i.tools {
-		out = append(out, t.ToTool())
-	}
-	return out
-}
-
 // ── Agent 操作 ──────────────────────────────────────────────────────────────
 
 // upsertAgent 注册或覆盖一个 agent(热更新语义)。

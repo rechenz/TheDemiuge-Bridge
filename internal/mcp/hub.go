@@ -2,12 +2,10 @@ package mcp
 
 import (
 	"sync"
-
-	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
 )
 
 // Hub 管理 SSE 长连接的订阅者,按实例隔离。
-// UE5 实例的 agent/tool 注册变更时,通过 ChangeListener 回调
+// 注册中心(如 UE5)发生 agent/tool 变更时,通过 OnChange 回调
 // 向对应实例的所有订阅者广播 list_changed 通知。
 type Hub struct {
 	mu   sync.Mutex
@@ -66,16 +64,17 @@ func (h *Hub) Broadcast(instanceID string, n Notification) {
 	}
 }
 
-// OnChange 实现 ue5.ChangeListener。
-// 由 manager 在注册变更时同步调用,转换为 MCP 通知广播。
-func (h *Hub) OnChange(c ue5.Change) {
+// OnChange 实现注册变更回调。
+// 由注册中心(Manager)在 tool/agent 变更时同步调用,转换为 MCP 通知广播。
+// 回调需立即返回,不得阻塞。
+func (h *Hub) OnChange(c Change) {
 	switch c.Kind {
-	case ue5.ChangeTool:
+	case ChangeTool:
 		h.Broadcast(c.InstanceID, Notification{
 			JSONRPC: RPCVersion,
 			Method:  MethodNotifToolsChanged,
 		})
-	case ue5.ChangeAgent:
+	case ChangeAgent:
 		h.Broadcast(c.InstanceID, Notification{
 			JSONRPC: RPCVersion,
 			Method:  MethodNotifAgentsChanged,
