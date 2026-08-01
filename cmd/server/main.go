@@ -17,7 +17,7 @@ import (
 	"github.com/rechenz/TheDemiuge-Bridge/internal/llm"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/mcp"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/server/handler"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/backend"
 )
 
 func main() {
@@ -25,9 +25,9 @@ func main() {
 
 	// ── UE5 实例注册中心 + 变更广播 ─────────────────────────────────────────
 	hub := mcp.NewHub()
-	mgr := ue5.NewManager(
-		ue5.WithRegistryDir(cfg.UE5.RegistryDir),
-		ue5.WithChangeListener(hub.OnChange),
+	mgr := backend.NewManager(
+		backend.WithRegistryDir(cfg.UE5.RegistryDir),
+		backend.WithChangeListener(hub.OnChange),
 	)
 	if err := mgr.Restore(); err != nil {
 		log.Fatalf("恢复 UE5 实例注册失败: %v", err)
@@ -38,17 +38,17 @@ func main() {
 	}
 
 	// ── UE5 工具执行转发客户端 ──────────────────────────────────────────────
-	cli := &ue5.Client{
+	cli := &backend.Client{
 		DefaultEndpoint: cfg.UE5.DefaultEndpoint,
 		HTTPTimeout:     cfg.HTTPTimeout,
 		HTTPClient:      cfg.HTTPClient,
 	}
 
 	// ── 处理器 ───────────────────────────────────────────────────────────────
-	// ue5.RegistryAdapter 把"UE5 注册中心 + HTTP 转发"实现为通用 mcp.Registry,
+	// backend.RegistryAdapter 把"UE5 注册中心 + HTTP 转发"实现为通用 mcp.Registry,
 	// 注入 MCP Server 与 ChatHandler——协议层不依赖任何特定后端。
 	ue5Handler := handler.NewUE5Handler(mgr, &cfg.UE5)
-	adapter := ue5.NewRegistryAdapter(mgr, cli)
+	adapter := backend.NewRegistryAdapter(mgr, cli)
 	mcpServer := mcp.NewServer(adapter)
 	mcpHandler := handler.NewMCPHandler(mcpServer, hub)
 	chatHandler := handler.NewChatHandler(adapter, llm.NewDeepseekProvider(cfg), false)

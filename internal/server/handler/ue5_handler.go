@@ -11,22 +11,22 @@ import (
 	"github.com/cloudwego/hertz/pkg/route"
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/config"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
+	backend "github.com/rechenz/TheDemiuge-Bridge/internal/backend"
 )
 
 // UE5APIKeyHeader UE5 管理接口鉴权 header。
 const UE5APIKeyHeader = "X-UE5-Key"
 
 // UE5Handler 处理 UE5 实例的管理接口。
-// 所有注册、查询、注销操作委托给 ue5.Manager;
-// 工具执行转发由 ue5.Client 完成(MCP 层共用)。
+// 所有注册、查询、注销操作委托给 backend.Manager;
+// 工具执行转发由 backend.Client 完成(MCP 层共用)。
 type UE5Handler struct {
-	mgr *ue5.Manager
+	mgr *backend.Manager
 	cfg *config.UE5Config
 }
 
 // NewUE5Handler 构造 UE5 管理处理器。
-func NewUE5Handler(mgr *ue5.Manager, cfg *config.UE5Config) *UE5Handler {
+func NewUE5Handler(mgr *backend.Manager, cfg *config.UE5Config) *UE5Handler {
 	return &UE5Handler{mgr: mgr, cfg: cfg}
 }
 
@@ -93,7 +93,7 @@ func (h *UE5Handler) createInstance(ctx context.Context, c *app.RequestContext) 
 		c.JSON(consts.StatusBadRequest, map[string]any{"error": "id 非法(仅允许字母/数字/下划线/连字符/点,长度 ≤64)"})
 		return
 	}
-	c.JSON(consts.StatusOK, ue5.InstanceInfo{
+	c.JSON(consts.StatusOK, backend.InstanceInfo{
 		ID:              req.ID,
 		DefaultEndpoint: req.DefaultEndpoint,
 	})
@@ -131,7 +131,7 @@ func (h *UE5Handler) deleteInstance(ctx context.Context, c *app.RequestContext) 
 // body: {"agents": [AgentDef...]}
 func (h *UE5Handler) batchUpsertAgents(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		Agents []ue5.AgentDef `json:"agents"`
+		Agents []backend.AgentDef `json:"agents"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(consts.StatusBadRequest, map[string]any{"error": "请求体非法: " + err.Error()})
@@ -151,7 +151,7 @@ func (h *UE5Handler) batchUpsertAgents(ctx context.Context, c *app.RequestContex
 // upsertAgent 注册/更新单个 agent(agent_name.yaml)。
 func (h *UE5Handler) upsertAgent(ctx context.Context, c *app.RequestContext) {
 	name := c.Param("name")
-	var def ue5.AgentDef
+	var def backend.AgentDef
 	if err := c.BindJSON(&def); err != nil {
 		c.JSON(consts.StatusBadRequest, map[string]any{"error": "请求体非法: " + err.Error()})
 		return
@@ -195,7 +195,7 @@ func (h *UE5Handler) deleteAgent(ctx context.Context, c *app.RequestContext) {
 // body: {"tools": [ToolReg...]}(ToolReg 内嵌 ToolDef + endpoint)
 func (h *UE5Handler) batchUpsertTools(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		Tools []ue5.ToolReg `json:"tools"`
+		Tools []backend.ToolReg `json:"tools"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(consts.StatusBadRequest, map[string]any{"error": "请求体非法: " + err.Error()})
@@ -215,7 +215,7 @@ func (h *UE5Handler) batchUpsertTools(ctx context.Context, c *app.RequestContext
 // upsertTool 注册/更新单个 tool(定义 + 转发 endpoint)。
 func (h *UE5Handler) upsertTool(ctx context.Context, c *app.RequestContext) {
 	name := c.Param("name")
-	var reg ue5.ToolReg
+	var reg backend.ToolReg
 	if err := c.BindJSON(&reg); err != nil {
 		c.JSON(consts.StatusBadRequest, map[string]any{"error": "请求体非法: " + err.Error()})
 		return

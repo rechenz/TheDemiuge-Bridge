@@ -7,7 +7,7 @@ import (
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/llm"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/backend"
 )
 
 // capturingProvider 记录每次 Chat 调用收到的消息与工具选项,供断言动态刷新。
@@ -46,9 +46,9 @@ func (p *capturingProvider) toolNames() []string {
 }
 
 // toolReg 便捷构造一个 ToolReg。
-func toolReg(t *testing.T, name, desc string) ue5.ToolReg {
+func toolReg(t *testing.T, name, desc string) backend.ToolReg {
 	t.Helper()
-	return ue5.ToolReg{
+	return backend.ToolReg{
 		ToolDef: mustToolDef(t, `{
 			"name": "`+name+`",
 			"description": "`+desc+`"
@@ -62,7 +62,7 @@ func toolReg(t *testing.T, name, desc string) ue5.ToolReg {
 //  2. 热更新:agent 改为引用 tool_b(删除 tool_a);
 //  3. 再次请求:LLM 只收到 tool_b,删掉的 tool_a 不再出现。
 func TestChatHandler_ToolHotReload(t *testing.T) {
-	mgr := ue5.NewManager(ue5.WithRegistryDir(t.TempDir()))
+	mgr := backend.NewManager(backend.WithRegistryDir(t.TempDir()))
 	inst := mgr.RegisterInstance("inst_a", "")
 	if err := mgr.UpsertTool(inst.ID, toolReg(t, "tool_a", "工具A")); err != nil {
 		t.Fatalf("注册 tool_a 失败: %v", err)
@@ -70,14 +70,14 @@ func TestChatHandler_ToolHotReload(t *testing.T) {
 	if err := mgr.UpsertTool(inst.ID, toolReg(t, "tool_b", "工具B")); err != nil {
 		t.Fatalf("注册 tool_b 失败: %v", err)
 	}
-	if err := mgr.UpsertAgent(inst.ID, ue5.AgentDef{
+	if err := mgr.UpsertAgent(inst.ID, backend.AgentDef{
 		Name: "npc", Type: "actor", SystemPrompt: "旧提示词", Tools: []string{"tool_a"},
 	}); err != nil {
 		t.Fatalf("注册 agent 失败: %v", err)
 	}
 
 	provider := &capturingProvider{}
-	adapter := ue5.NewRegistryAdapter(mgr, nil)
+	adapter := backend.NewRegistryAdapter(mgr, nil)
 	h := NewChatHandler(adapter, provider, false)
 
 	// 1. 创建 Runner 缓存
@@ -87,7 +87,7 @@ func TestChatHandler_ToolHotReload(t *testing.T) {
 	}
 
 	// 2. 热更新:system prompt 变化 + 工具引用从 tool_a 改为 tool_b
-	if err := mgr.UpsertAgent(inst.ID, ue5.AgentDef{
+	if err := mgr.UpsertAgent(inst.ID, backend.AgentDef{
 		Name: "npc", Type: "actor", SystemPrompt: "新提示词", Tools: []string{"tool_b"},
 	}); err != nil {
 		t.Fatalf("热更新 agent 失败: %v", err)
@@ -114,22 +114,22 @@ func TestChatHandler_ToolHotReload(t *testing.T) {
 
 // TestChatHandler_PromptHotReload 验证热更新 system prompt 后 Runner 使用新 prompt。
 func TestChatHandler_PromptHotReload(t *testing.T) {
-	mgr := ue5.NewManager(ue5.WithRegistryDir(t.TempDir()))
+	mgr := backend.NewManager(backend.WithRegistryDir(t.TempDir()))
 	inst := mgr.RegisterInstance("inst_a", "")
-	if err := mgr.UpsertAgent(inst.ID, ue5.AgentDef{
+	if err := mgr.UpsertAgent(inst.ID, backend.AgentDef{
 		Name: "npc", Type: "actor", SystemPrompt: "旧提示词",
 	}); err != nil {
 		t.Fatalf("注册 agent 失败: %v", err)
 	}
 
-	h := NewChatHandler(ue5.NewRegistryAdapter(mgr, nil), &capturingProvider{}, false)
+	h := NewChatHandler(backend.NewRegistryAdapter(mgr, nil), &capturingProvider{}, false)
 	entry, err := h.getOrCreateRunner(inst.ID, "npc")
 	if err != nil {
 		t.Fatalf("getOrCreateRunner 失败: %v", err)
 	}
 
 	// 热更新 system prompt
-	if err := mgr.UpsertAgent(inst.ID, ue5.AgentDef{
+	if err := mgr.UpsertAgent(inst.ID, backend.AgentDef{
 		Name: "npc", Type: "actor", SystemPrompt: "新提示词",
 	}); err != nil {
 		t.Fatalf("热更新 agent 失败: %v", err)

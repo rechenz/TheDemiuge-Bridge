@@ -1,9 +1,9 @@
-// Package ue5 实现 UE5 实例接入层。
+// Package backend 实现后端实例接入层。
 //
-// 每个 UE5 游戏服务器实例是一个独立的注册单元:通过外部管理接口
+// 每个后端实例是一个独立的注册单元:通过外部管理接口
 // 动态注册/更新/删除 agent 与 tool 定义,Bridge 侧按实例隔离存储并
 // 转发工具调用。所有注册信息可落盘持久化,Bridge 重启后自动恢复。
-package ue5
+package backend
 
 import (
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
@@ -11,10 +11,10 @@ import (
 
 // ── Tool 注册 ───────────────────────────────────────────────────────────────
 
-// ToolReg 一个 UE5 实例注册的工具注册条目。
+// ToolReg 一个后端实例注册的工具注册条目。
 // 包含工具定义(供 MCP tools/list 与 LLM tool calling 使用)
-// 以及转发的执行地址(UE5 侧实际执行端)。
-// 同时用于 UE5 上传、实例落盘与内存存储,字段平铺。
+// 以及转发的执行地址(后端侧实际执行端)。
+// 同时用于后端上传、实例落盘与内存存储,字段平铺。
 type ToolReg struct {
 	ToolDef
 	// Endpoint 工具执行时的转发地址。
@@ -32,7 +32,7 @@ func (r ToolReg) ToTool() types.Tool {
 
 // ── Agent 注册 ─────────────────────────────────────────────────────────────
 
-// AgentDef 一个 UE5 实例注册的 agent 定义。
+// AgentDef 一个后端实例注册的 agent 定义。
 // 对应单个 agent 的注册文件(如 registry/{instance}/agents/{name}.yaml)。
 type AgentDef struct {
 	// Name agent 名称,实例内唯一
@@ -47,7 +47,7 @@ type AgentDef struct {
 
 // ── 实例信息 ───────────────────────────────────────────────────────────────
 
-// InstanceInfo 一个 UE5 实例的概要信息,供查询接口返回。
+// InstanceInfo 一个后端实例的概要信息,供查询接口返回。
 type InstanceInfo struct {
 	// ID 实例唯一标识
 	ID string `json:"id"`
@@ -62,7 +62,7 @@ type InstanceInfo struct {
 // ── 类型转换辅助 ───────────────────────────────────────────────────────────
 
 // ToolDef 对应单个工具注册文件/请求体的工具定义部分
-// (与 config/tools.yaml 的字段一致,供 UE5 上传时解码)。
+// (与 config/tools.yaml 的字段一致,供后端上传时解码)。
 type ToolDef struct {
 	// Name 工具名称(实例内唯一)
 	Name string `json:"name" yaml:"name"`
@@ -74,8 +74,7 @@ type ToolDef struct {
 	Strict bool `json:"strict,omitempty" yaml:"strict,omitempty"`
 }
 
-// toolParams 对应 ToolDef 的参数描述(与 registry.decode 的 parametersDef 同构,
-// 因包私有不可复用,此处独立定义)。
+// toolParams 对应 ToolDef 的参数描述(JSON Schema object 形式)。
 type toolParams struct {
 	Type                 string                 `json:"type" yaml:"type"`
 	Properties           map[string]*toolSchema `json:"properties,omitempty" yaml:"properties,omitempty"`

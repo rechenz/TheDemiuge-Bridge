@@ -1,4 +1,4 @@
-package ue5
+package backend
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
 )
 
-// RegistryAdapter 把 ue5.Manager(注册中心) + ue5.Client(工具执行) 组合,
+// RegistryAdapter 把 backend.Manager(注册中心) + backend.Client(工具执行) 组合,
 // 实现 mcp.Registry 通用接口。MCP 协议层只依赖 Registry,
 // "接入哪个后端、如何执行"由该适配器决定。
 type RegistryAdapter struct {
@@ -17,7 +17,7 @@ type RegistryAdapter struct {
 }
 
 // NewRegistryAdapter 构造适配器。
-// mgr 提供注册数据读取;cli 提供工具执行(HTTP 转发到 UE5)。
+// mgr 提供注册数据读取;cli 提供工具执行(HTTP 转发到后端)。
 func NewRegistryAdapter(mgr *Manager, cli *Client) *RegistryAdapter {
 	return &RegistryAdapter{mgr: mgr, cli: cli}
 }
@@ -78,9 +78,9 @@ func (a *RegistryAdapter) GetAgent(instanceID, name string) (mcp.RegisteredAgent
 	}, true
 }
 
-// ── 执行面:通过 Client 转发到 UE5 ──────────────────────────────────────────
+// ── 执行面:通过 Client 转发到后端 ──────────────────────────────────────────
 
-// ExecuteTool 从注册空间取工具定义并转发 UE5 执行。
+// ExecuteTool 从注册空间取工具定义并转发后端执行。
 func (a *RegistryAdapter) ExecuteTool(ctx context.Context, instanceID, name string, args map[string]any) (string, error) {
 	inst, ok := a.mgr.GetInstance(instanceID)
 	if !ok {

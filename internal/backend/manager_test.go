@@ -1,4 +1,4 @@
-package ue5
+package backend
 
 import (
 	"os"

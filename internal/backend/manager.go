@@ -1,4 +1,4 @@
-package ue5
+package backend
 
 import (
 	"fmt"
@@ -49,7 +49,7 @@ type ChangeListener func(mcp.Change)
 
 // ── Manager ─────────────────────────────────────────────────────────────────
 
-// Manager 统一管理全部 UE5 实例的注册空间。
+// Manager 统一管理全部 后端实例的注册空间。
 // 所有读写操作由内部互斥锁串行化,保证并发安全。
 type Manager struct {
 	mu        sync.Mutex

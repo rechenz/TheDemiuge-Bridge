@@ -1,4 +1,4 @@
-package ue5
+package backend
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// ForwardRequest 转发到 UE5 侧执行工具时的请求体。
+// ForwardRequest 转发到后端执行工具时的请求体。
 type ForwardRequest struct {
 	// Name 被调用的工具名称
 	Name string `json:"name"`
@@ -18,7 +18,7 @@ type ForwardRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-// ForwardResponse UE5 侧执行工具后的响应体。
+// ForwardResponse 后端侧执行工具后的响应体。
 // 两种形态:
 //  1. 结构化: 200 {"result": ...} —— 有 result 字段
 //  2. 自由文本: 200 "some text..." —— 无 result 字段时,把整个 body 作为结果
@@ -34,7 +34,7 @@ type ForwardResponse struct {
 // 结构化 result 为空且原始 body 为空时返回错误。
 func (r *ForwardResponse) Validate() error {
 	if len(r.raw) == 0 {
-		return fmt.Errorf("UE5 返回空响应")
+		return fmt.Errorf("后端返回空响应")
 	}
 	return nil
 }
@@ -43,21 +43,21 @@ func (r *ForwardResponse) Validate() error {
 // 结构化 result 存在时 JSON 序列化后返回;否则返回原始 body。
 func (r *ForwardResponse) Text() (string, error) {
 	if len(r.raw) == 0 {
-		return "", fmt.Errorf("UE5 返回空响应")
+		return "", fmt.Errorf("后端返回空响应")
 	}
 	if r.Result != nil {
 		data, err := json.Marshal(r.Result)
 		if err != nil {
-			return "", fmt.Errorf("序列化 UE5 结果失败: %w", err)
+			return "", fmt.Errorf("序列化后端结果失败: %w", err)
 		}
 		return string(data), nil
 	}
 	return r.raw, nil
 }
 
-// Client UE5 工具执行转发客户端。
+// Client 后端工具执行转发客户端。
 // 根据工具注册条目解析最终转发地址(工具 Endpoint → 实例 DefaultEndpoint
-// → 全局 DefaultEndpoint),向 UE5 侧发起 HTTP 调用并返回执行结果。
+// → 全局 DefaultEndpoint),向后端发起 HTTP 调用并返回执行结果。
 type Client struct {
 	// DefaultEndpoint 全局默认的转发地址(配置项 UE5_DEFAULT_ENDPOINT)
 	DefaultEndpoint string
@@ -70,7 +70,7 @@ type Client struct {
 }
 
 // Forward 转发一次工具调用。
-// 实例为 nil 或解析不到转发地址时返回错误;UE5 不可达/超时同样返回错误。
+// 实例为 nil 或解析不到转发地址时返回错误;后端不可达/超时同样返回错误。
 func (c *Client) Forward(ctx context.Context, inst *Instance, tool ToolReg, args map[string]any) (*ForwardResponse, error) {
 	endpoint, err := c.resolveEndpoint(inst, tool)
 	if err != nil {
@@ -113,20 +113,20 @@ func (c *Client) Forward(ctx context.Context, inst *Instance, tool ToolReg, args
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("转发工具 %s 到 UE5 失败: %w", tool.Name, err)
+		return nil, fmt.Errorf("转发工具 %s 到后端失败: %w", tool.Name, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取 UE5 响应失败: %w", err)
+		return nil, fmt.Errorf("读取后端响应失败: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := string(body)
 		if len(msg) > 512 {
 			msg = msg[:512]
 		}
-		return nil, fmt.Errorf("UE5 返回状态 %d: %s", resp.StatusCode, msg)
+		return nil, fmt.Errorf("后端返回状态 %d: %s", resp.StatusCode, msg)
 	}
 
 	// 尝试解析结构化 {"result": ...};解析失败时按原始文本处理

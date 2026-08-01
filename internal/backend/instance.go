@@ -1,4 +1,4 @@
-package ue5
+package backend
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
 )
 
-// Instance 是一个 UE5 游戏服务器实例的注册空间。
+// Instance 是一个 后端实例的注册空间。
 // 每个实例持有独立的 tool 池与 agent 池,互不干扰。
 // 并发安全由 Manager 串行化保证,本类型不内嵌锁。
 type Instance struct {

@@ -15,7 +15,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
-	"github.com/rechenz/TheDemiuge-Bridge/internal/ue5"
+	"github.com/rechenz/TheDemiuge-Bridge/internal/backend"
 )
 
 // ── mock Provider(双轮:工具调用 → 最终回复)───────────────────────────────
@@ -71,9 +71,9 @@ func TestChatIntegration(t *testing.T) {
 	defer ue5Srv.Close()
 
 	// 2. 注册空间:实例 + 工具 + agent
-	mgr := ue5.NewManager(ue5.WithRegistryDir(t.TempDir()))
+	mgr := backend.NewManager(backend.WithRegistryDir(t.TempDir()))
 	inst := mgr.RegisterInstance("inst_a", ue5Srv.URL)
-	if err := mgr.UpsertTool(inst.ID, ue5.ToolReg{
+	if err := mgr.UpsertTool(inst.ID, backend.ToolReg{
 		ToolDef: mustToolDef(t, `{
 			"name": "play_animation",
 			"description": "让 NPC 播放指定动画",
@@ -86,7 +86,7 @@ func TestChatIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("注册工具失败: %v", err)
 	}
-	if err := mgr.UpsertAgent(inst.ID, ue5.AgentDef{
+	if err := mgr.UpsertAgent(inst.ID, backend.AgentDef{
 		Name:         "npc_alice",
 		Type:         "actor",
 		SystemPrompt: "你是面包店老板娘艾丽丝,温柔友善。",
@@ -96,8 +96,8 @@ func TestChatIntegration(t *testing.T) {
 	}
 
 	// 3. 起 Hertz 服务
-	cli := &ue5.Client{HTTPClient: ue5Srv.Client()}
-	chatHandler := NewChatHandler(ue5.NewRegistryAdapter(mgr, cli), &mockProvider{}, false)
+	cli := &backend.Client{HTTPClient: ue5Srv.Client()}
+	chatHandler := NewChatHandler(backend.NewRegistryAdapter(mgr, cli), &mockProvider{}, false)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -155,10 +155,10 @@ func TestChatIntegration(t *testing.T) {
 
 // ── 工具 ────────────────────────────────────────────────────────────────────
 
-// mustToolDef 从 JSON 构造 ue5.ToolDef(toolParams 为私有类型,只能走反序列化)。
-func mustToolDef(t *testing.T, raw string) ue5.ToolDef {
+// mustToolDef 从 JSON 构造 backend.ToolDef(toolParams 为私有类型,只能走反序列化)。
+func mustToolDef(t *testing.T, raw string) backend.ToolDef {
 	t.Helper()
-	var def ue5.ToolDef
+	var def backend.ToolDef
 	if err := json.Unmarshal([]byte(raw), &def); err != nil {
 		t.Fatalf("构造 ToolDef 失败: %v", err)
 	}
