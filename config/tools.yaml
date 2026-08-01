@@ -1,0 +1,41 @@
+# ── Tool 注册配置 ──────────────────────────────────────────────────────────
+# 通过 config.Registry.ToolsFile(环境变量 TOOLS_FILE,默认 config/tools.yaml)
+# 指定本文件的存储位置,由服务启动时读取并注册为全局 ToolRegistry。
+# Agent 通过名称引用这里的工具(见 config/agents.yaml 的 tools 列表)。
+#
+# 字段说明:
+#   name        工具名称(全局唯一),作为 Agent 引用绑定的标识
+#   description 工具功能描述,供模型理解何时以及如何调用
+#   parameters  工具输入参数,以 JSON Schema object 描述;省略表示无参数
+#   strict      (Beta) 为 true 时启用 strict 模式,默认 false
+#
+# 示例工具1:获取当前时间。
+tools:
+  - name: get_time
+    description: 获取指定时区的当前日期和时间。
+    parameters:
+      type: object
+      properties:
+        timezone:
+          type: string
+          description: IANA 时区名,如 Asia/Shanghai 或 UTC。
+      required:
+        - timezone
+
+  # 示例工具2:查询天气(占位,实际执行逻辑由 internal/tool 实现接入)。
+  - name: get_weather
+    description: 查询指定城市的当前天气概况。
+    parameters:
+      type: object
+      properties:
+        city:
+          type: string
+          description: 城市名称,如 上海。
+        unit:
+          type: string
+          description: 温度单位,可选 celsius 或 fahrenheit。
+          enum:
+            - celsius
+            - fahrenheit
+      required:
+        - city

@@ -259,6 +259,49 @@ func (c *ToolChoice) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ── Tool 注册中心 ───────────────────────────────────────────────────────────
+
+// ToolRegistry 统一管理已注册的 Tool(如全局可用的能力清单)。
+// 保证 Tool 名称在注册表内唯一;Agent 通过引用名称绑定自身可调用的 tool。
+type ToolRegistry struct {
+	tools map[string]Tool
+}
+
+// NewToolRegistry 构造空的 Tool 注册表。
+func NewToolRegistry() *ToolRegistry {
+	return &ToolRegistry{tools: make(map[string]Tool)}
+}
+
+// Register 注册一个 Tool;nil 或名称冲突时返回错误。
+func (r *ToolRegistry) Register(t Tool) error {
+	if r.tools == nil {
+		r.tools = make(map[string]Tool)
+	}
+	if t.Function.Name == "" {
+		return fmt.Errorf("Tool 名称不能为空")
+	}
+	if _, ok := r.tools[t.Function.Name]; ok {
+		return fmt.Errorf("Tool %q 已注册", t.Function.Name)
+	}
+	r.tools[t.Function.Name] = t
+	return nil
+}
+
+// Get 按名称获取 Tool;不存在时返回 (Tool, false)。
+func (r *ToolRegistry) Get(name string) (Tool, bool) {
+	t, ok := r.tools[name]
+	return t, ok
+}
+
+// All 返回注册表内全部 Tool,顺序不保证。
+func (r *ToolRegistry) All() []Tool {
+	all := make([]Tool, 0, len(r.tools))
+	for _, t := range r.tools {
+		all = append(all, t)
+	}
+	return all
+}
+
 // ── Tool 类型常量 ──────────────────────────────────────────────────────────
 
 // ToolTypeFunction 目前唯一支持的 tool 类型。

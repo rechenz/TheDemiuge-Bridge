@@ -14,12 +14,23 @@ import (
 // DeepSeekBaseURL DeepSeek 官方 Chat Completions 接口基地址。
 const DeepSeekBaseURL = "https://api.deepseek.com/chat/completions"
 
+// RegistryConfig 注册存储位置配置。
+// Agent 与 Tool 的定义均通过 YAML 文件读写,由启动时加载注册。
+type RegistryConfig struct {
+	// AgentsFile Agent 定义 YAML 文件路径,默认 config/agents.yaml
+	AgentsFile string
+	// ToolsFile Tool 定义 YAML 文件路径,默认 config/tools.yaml
+	ToolsFile string
+}
+
 // Config 服务运行配置。
 type Config struct {
 	// Addr 服务器监听地址
 	Addr string
 	// APIKey LLM 提供方 API Key
 	APIKey string
+	// Registry Agent / Tool 注册的 YAML 存储位置
+	Registry RegistryConfig
 	// BaseURL LLM 提供方 Chat Completions 接口地址,默认 DeepSeek 官方地址。
 	// 换 OpenAI / 本地模型等兼容服务时只需改这里,上层零改动。
 	BaseURL string
@@ -56,8 +67,12 @@ type Config struct {
 func Load() *Config {
 	thinking := types.ThinkingEnabled
 	return &Config{
-		Addr:            getEnv("ADDR", ":8080"),
-		APIKey:          getEnv("DEEPSEEK_API_KEY", ""),
+		Addr:   getEnv("ADDR", ":8080"),
+		APIKey: getEnv("DEEPSEEK_API_KEY", ""),
+		Registry: RegistryConfig{
+			AgentsFile: getEnv("AGENTS_FILE", "config/agents.yaml"),
+			ToolsFile:  getEnv("TOOLS_FILE", "config/tools.yaml"),
+		},
 		BaseURL:         getEnv("DEEPSEEK_BASE_URL", DeepSeekBaseURL),
 		ModelName:       getEnv("MODEL_NAME", types.ModelV4Flash),
 		MaxTokens:       getEnvInt("MAX_TOKENS", 4096),
