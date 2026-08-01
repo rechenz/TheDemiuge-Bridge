@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rechenz/TheDemiuge-Bridge/internal/config"
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
@@ -60,13 +61,23 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// defaultHTTPTimeout 兜底超时:配置未显式设置 HTTP_TIMEOUT 时使用,
+// 防止请求永久挂起(HTTP_TIMEOUT=0 表示无超时的场景下兜底)。
+const defaultHTTPTimeout = 60 * time.Second
+
 // NewClient 构造 DeepSeek 客户端。
 // cfg.HTTPClient 非 nil 时优先使用注入的客户端;
 // 否则使用带 cfg.HTTPTimeout 超时的默认客户端。
+// 当配置未提供任何客户端且超时 <= 0(即全程无超时)时,
+// 回退到 defaultHTTPTimeout,避免请求永久挂起。
 func NewClient(cfg *config.Config) *Client {
 	httpClient := cfg.HTTPClient
-	if httpClient == nil && cfg.HTTPTimeout > 0 {
-		httpClient = &http.Client{Timeout: cfg.HTTPTimeout}
+	if httpClient == nil {
+		timeout := cfg.HTTPTimeout
+		if timeout <= 0 {
+			timeout = defaultHTTPTimeout
+		}
+		httpClient = &http.Client{Timeout: timeout}
 	}
 	return &Client{cfg: cfg, httpClient: httpClient}
 }
@@ -286,7 +297,7 @@ func mergeToolCall(toolCalls *[]*types.ToolCall, delta types.ToolCall) {
 // buildAggregatedResponse 组装聚合后的完整响应。
 // finishReason 为流式循环收集到的真实结束原因,而非硬编码 stop。
 func buildAggregatedResponse(agg *types.ChatResponse, content, reasoning string, toolCalls []*types.ToolCall, finishReason types.FinishReason) (*types.ChatResponse, error) {
-	assistant := types.AssistantMessage{Content: &content}
+	assistant := types.AssistantMessage{Role: string(types.RoleAssistant), Content: &content}
 	if reasoning != "" {
 		r := reasoning
 		assistant.ReasoningContent = &r

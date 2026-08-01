@@ -90,12 +90,22 @@ func NewManager(opts ...ManagerOption) *Manager {
 
 // ── 实例管理 ────────────────────────────────────────────────────────────────
 
-// RegisterInstance 注册一个实例(幂等)。
+// RegisterInstance 注册一个实例(幂等,线程安全)。
 // 已存在时返回该实例(不重置其注册内容)。
+// ID 非法(含路径字符如 ../ 等)时返回 nil,调用方应拒绝注册。
 func (m *Manager) RegisterInstance(id, defaultEndpoint string) *Instance {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !validateInstanceID(id) {
+		return nil
+	}
+	return m.registerInstanceLocked(id, defaultEndpoint)
+}
 
+// registerInstanceLocked 在锁内注册实例(幂等)。
+// 已存在时返回该实例(不重置其注册内容)。
+// 调用方需持有锁,并已在调用前完成 ID 合法性校验。
+func (m *Manager) registerInstanceLocked(id, defaultEndpoint string) *Instance {
 	if inst, ok := m.instances[id]; ok {
 		return inst
 	}
@@ -103,6 +113,27 @@ func (m *Manager) RegisterInstance(id, defaultEndpoint string) *Instance {
 	m.instances[id] = inst
 	_ = m.persistInstanceLocked(inst)
 	return inst
+}
+
+// validateInstanceID 校验实例 ID 的合法性。
+// 仅允许字母、数字、下划线、连字符与点,且长度 ≤ 64,
+// 禁止路径分隔符('../'、'/'、'\')与空白,防止落盘目录穿越。
+func validateInstanceID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	if id == "." || id == ".." {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '_', r == '-', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // GetInstance 按 ID 获取实例;不存在时返回 (nil, false)。
@@ -164,7 +195,10 @@ func (m *Manager) UpsertTool(instanceID string, reg ToolReg) error {
 
 	inst := m.instances[instanceID]
 	if inst == nil {
-		inst = m.RegisterInstance(instanceID, "")
+		if !validateInstanceID(instanceID) {
+			return fmt.Errorf("实例 ID %q 非法(仅允许字母/数字/下划线/连字符/点,长度 ≤64)", instanceID)
+		}
+		inst = m.registerInstanceLocked(instanceID, "")
 	}
 	if err := inst.upsertTool(reg); err != nil {
 		return err
@@ -183,7 +217,10 @@ func (m *Manager) UpsertTools(instanceID string, regs []ToolReg) error {
 
 	inst := m.instances[instanceID]
 	if inst == nil {
-		inst = m.RegisterInstance(instanceID, "")
+		if !validateInstanceID(instanceID) {
+			return fmt.Errorf("实例 ID %q 非法(仅允许字母/数字/下划线/连字符/点,长度 ≤64)", instanceID)
+		}
+		inst = m.registerInstanceLocked(instanceID, "")
 	}
 
 	// 先在校验副本上演练,全部通过后统一写回真实注册空间
@@ -268,7 +305,10 @@ func (m *Manager) UpsertAgents(instanceID string, defs []AgentDef) error {
 
 	inst := m.instances[instanceID]
 	if inst == nil {
-		inst = m.RegisterInstance(instanceID, "")
+		if !validateInstanceID(instanceID) {
+			return fmt.Errorf("实例 ID %q 非法(仅允许字母/数字/下划线/连字符/点,长度 ≤64)", instanceID)
+		}
+		inst = m.registerInstanceLocked(instanceID, "")
 	}
 
 	// 先在校验副本上演练,全部通过后统一写回真实注册空间
@@ -341,7 +381,10 @@ func (m *Manager) Agents(instanceID string) []AgentDef {
 func (m *Manager) upsertAgentLocked(instanceID string, def AgentDef) error {
 	inst := m.instances[instanceID]
 	if inst == nil {
-		inst = m.RegisterInstance(instanceID, "")
+		if !validateInstanceID(instanceID) {
+			return fmt.Errorf("实例 ID %q 非法(仅允许字母/数字/下划线/连字符/点,长度 ≤64)", instanceID)
+		}
+		inst = m.registerInstanceLocked(instanceID, "")
 	}
 	if err := inst.upsertAgent(def); err != nil {
 		return err

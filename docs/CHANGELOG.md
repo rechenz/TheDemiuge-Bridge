@@ -44,3 +44,11 @@
 - [ ] commit 当前工作区（MCP 改造 + ReAct 接线一批）
 - [ ] 真实 DEEPSEEK_API_KEY 端到端联调
 - [ ] UE5 端 MCP Server 实现（照 docs/UE5-MCP-SERVER.md）
+
+### 2026-08-01 补充（15:46）
+
+- 调研 UE 社区 MCP 插件：确认两类（编辑器自动化 vs 游戏内 LLM 集成），
+  结论：不整体替换，参考协议实现
+- 存档 ChiR24/Unreal_mcp（807★，浅克隆）→ F:\\project\\TheDemiugeAgent\\references\\Unreal_mcp
+  （含 README-REFERENCE.md 索引；C++ 传输层在 McpAutomationBridge 插件）
+- 待办（之后做）：提炼 C++ 传输层可复用片段；对比 tool schema 兼容性

@@ -24,10 +24,17 @@ type Message interface {
 
 // SystemMessage 对应文档的 System message,通常用于设定助手行为与人格。
 type SystemMessage struct {
+	// Role 固定为 system,序列化时显式输出
+	Role string `json:"role"`
 	// Content system 消息的内容(必填)
 	Content string `json:"content"`
 	// Name 可选填的参与者名称,用于区分相同角色的参与者
 	Name string `json:"name,omitempty"`
+}
+
+// NewSystemMessage 构造 System 消息。
+func NewSystemMessage(content string) SystemMessage {
+	return SystemMessage{Role: string(RoleSystem), Content: content}
 }
 
 func (m SystemMessage) GetRole() string    { return string(RoleSystem) }
@@ -40,10 +47,17 @@ func (m SystemMessage) isMessage()         {}
 // 当前 Content 以 string 承载文本;后续如需支持多模态内容
 // (图片 / 音频等 ContentPart 数组),可在此扩展 ContentParts 字段。
 type UserMessage struct {
+	// Role 固定为 user,序列化时显式输出
+	Role string `json:"role"`
 	// Content user 消息的内容(必填)
 	Content string `json:"content"`
 	// Name 可选填的参与者名称,用于区分相同角色的参与者
 	Name string `json:"name,omitempty"`
+}
+
+// NewUserMessage 构造 User 消息。
+func NewUserMessage(content string) UserMessage {
+	return UserMessage{Role: string(RoleUser), Content: content}
 }
 
 func (m UserMessage) GetRole() string    { return string(RoleUser) }
@@ -58,6 +72,8 @@ func (m UserMessage) isMessage()         {}
 //
 // 对应文档的 Assistant message。
 type AssistantMessage struct {
+	// Role 固定为 assistant,序列化时显式输出
+	Role string `json:"role"`
 	// Content assistant 消息的内容,nullable。
 	// 当模型仅发起 tool 调用(content 为 null)时必须为 nil。
 	Content *string `json:"content"`
@@ -77,19 +93,19 @@ type AssistantMessage struct {
 // NewAssistantMessage 构造普通文本 assistant 消息。
 func NewAssistantMessage(content string) AssistantMessage {
 	c := content
-	return AssistantMessage{Content: &c}
+	return AssistantMessage{Role: string(RoleAssistant), Content: &c}
 }
 
 // NewAssistantMessageWithReasoning 构造带推理内容的 assistant 消息。
 func NewAssistantMessageWithReasoning(content, reasoning string) AssistantMessage {
 	c := content
 	r := reasoning
-	return AssistantMessage{Content: &c, ReasoningContent: &r}
+	return AssistantMessage{Role: string(RoleAssistant), Content: &c, ReasoningContent: &r}
 }
 
 // NewAssistantMessageWithToolCalls 构造仅包含 tool 调用的 assistant 消息。
 func NewAssistantMessageWithToolCalls(calls ...ToolCall) AssistantMessage {
-	return AssistantMessage{ToolCalls: calls}
+	return AssistantMessage{Role: string(RoleAssistant), ToolCalls: calls}
 }
 
 func (m AssistantMessage) GetRole() string { return string(RoleAssistant) }
@@ -105,10 +121,17 @@ func (m AssistantMessage) isMessage() {}
 
 // ToolMessage 对应文档的 Tool message,用于回传工具执行结果。
 type ToolMessage struct {
+	// Role 固定为 tool,序列化时显式输出
+	Role string `json:"role"`
 	// Content tool 消息的内容(必填)
 	Content string `json:"content"`
 	// ToolCallID 此消息所响应的 tool call 的 ID(必填)
 	ToolCallID string `json:"tool_call_id"`
+}
+
+// NewToolMessage 构造 Tool 消息。
+func NewToolMessage(content, toolCallID string) ToolMessage {
+	return ToolMessage{Role: string(RoleTool), Content: content, ToolCallID: toolCallID}
 }
 
 func (m ToolMessage) GetRole() string    { return string(RoleTool) }

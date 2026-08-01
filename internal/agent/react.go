@@ -19,6 +19,12 @@ import (
 	"github.com/rechenz/TheDemiuge-Bridge/internal/types"
 )
 
+// maxHistoryMessages 单次请求带入 LLM 的历史消息条数上限。
+// 超过时裁剪最旧的消息,防止会话上下文无界增长撑爆上下文窗口。
+// 保留末尾的 tool-call/assistant-tool 配对完整性,避免向上游发
+// 无关联的 tool 消息。
+const maxHistoryMessages = 30
+
 // ── Tool 执行抽象 ──────────────────────────────────────────────────────────
 
 // ToolExecutor 负责执行模型发起的 tool 调用。
@@ -134,6 +140,13 @@ func NewRunner(a *types.Agent, provider llm.Provider, executor ToolExecutor, opt
 	return r
 }
 
+// GetAgent 返回 Runner 绑定的 Agent。
+// 供调用方在每次请求前同步最新的角色 prompt 与工具列表
+// (UE5 管理接口热更新后,实时刷新 Agent 的可调用范围)。
+func (r *Runner) GetAgent() *types.Agent {
+	return r.agent
+}
+
 // Run 执行一次 ReAct 循环:
 //  1. 追加用户消息到会话;
 //  2. 循环调用 LLM(actor 流式推送 / system 非流式);
@@ -142,7 +155,7 @@ func NewRunner(a *types.Agent, provider llm.Provider, executor ToolExecutor, opt
 //
 // sink 可为 nil,此时跳过全部推送(actor 的文本流也随之跳过)。
 func (r *Runner) Run(ctx context.Context, sessionID, userMessage string, sink EventSink) (*Result, error) {
-	r.agent.AppendMessage(sessionID, types.UserMessage{Content: userMessage})
+	r.agent.AppendMessage(sessionID, types.NewUserMessage(userMessage))
 
 	result := &Result{}
 
@@ -181,7 +194,7 @@ func (r *Runner) Run(ctx context.Context, sessionID, userMessage string, sink Ev
 				if err != nil {
 					return nil, err
 				}
-				r.agent.AppendMessage(sessionID, types.ToolMessage{Content: value, ToolCallID: call.ID})
+				r.agent.AppendMessage(sessionID, types.NewToolMessage(value, call.ID))
 			}
 			continue
 		}
@@ -236,14 +249,45 @@ func (r *Runner) callOnce(ctx context.Context, sessionID string, sink EventSink)
 	return resp, nil
 }
 
-// buildMessages 组装请求消息:system prompt + 会话历史。
+// buildMessages 组装请求消息:system prompt + 会话历史(应用窗口裁剪)。
 func (r *Runner) buildMessages(sessionID string) []types.Message {
-	history := r.agent.GetMessages(sessionID)
+	history := trimHistoryWindow(r.agent.GetMessages(sessionID))
 	msgs := make([]types.Message, 0, len(history)+1)
 	if r.agent.SystemPrompt != "" {
-		msgs = append(msgs, types.SystemMessage{Content: r.agent.SystemPrompt})
+		msgs = append(msgs, types.NewSystemMessage(r.agent.SystemPrompt))
 	}
 	return append(msgs, history...)
+}
+
+// trimHistoryWindow 裁剪会话历史到 maxHistoryMessages 条以内。
+// 从最旧消息开始丢弃,丢弃到 tool 消息时连同其对应的 assistant 消息
+// (携带 tool_calls 的那条)一起跳过,保证留下的历史中 assistant 的
+// tool_calls 与其后续 tool 结果始终配对完整,避免 API 因孤立的
+// tool 消息而报错。
+func trimHistoryWindow(history []types.Message) []types.Message {
+	if len(history) <= maxHistoryMessages {
+		return history
+	}
+	// 从最旧处开始裁,跳过开头未配对的 tool 消息(无 assistant tool_calls 先行)
+	start := 0
+	for start < len(history) && history[start].GetRole() == string(types.RoleTool) {
+		start++
+	}
+	start = len(history) - maxHistoryMessages
+	if start <= 0 {
+		return history
+	}
+	// 若裁剪点前的下一条是 tool 消息,则回溯到其前一条 assistant 消息,
+	// 保持配对完整。
+	if start < len(history) && history[start].GetRole() == string(types.RoleTool) {
+		start--
+	}
+	if start < 0 {
+		start = 0
+	}
+	out := make([]types.Message, len(history)-start)
+	copy(out, history[start:])
+	return out
 }
 
 // chatOptions 构造携带工具定义的 ChatOptions;无工具时返回 nil。
@@ -256,8 +300,12 @@ func (r *Runner) chatOptions() *types.ChatOptions {
 
 // normalizeAssistant 规范化 assistant 消息后追加历史。
 // 仅当 content 为空且携带 tool_calls 时置 nil,符合 API「仅发起工具调用
-// 时 content 为 null」的规范。
+// 时 content 为 null」的规范。同时兜底补全 role(来源可能为手动构造的
+// 消息或未返回 role 的 API 响应,避免序列化时输出空 role)。
 func normalizeAssistant(msg types.AssistantMessage) types.AssistantMessage {
+	if msg.Role == "" {
+		msg.Role = string(types.RoleAssistant)
+	}
 	if msg.Content != nil && *msg.Content == "" && len(msg.ToolCalls) > 0 {
 		msg.Content = nil
 	}

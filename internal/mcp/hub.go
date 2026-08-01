@@ -52,17 +52,12 @@ func (h *Hub) Subscribe(instanceID string) (<-chan Notification, func()) {
 
 // Broadcast 向某实例的全部订阅者推送通知。
 // 发送不阻塞:订阅者通道满时丢弃(避免慢消费者拖垮注册流程)。
+// 发送在持有锁的情况下进行,与 Subscribe 的 close 互斥,
+// 避免"发送到已关闭通道"导致的 panic(cancel 在锁内 close(ch))。
 func (h *Hub) Broadcast(instanceID string, n Notification) {
 	h.mu.Lock()
-	set := h.subs[instanceID]
-	// 复制订阅者集合,释放锁后再逐个推送
-	subs := make([]chan Notification, 0, len(set))
-	for ch := range set {
-		subs = append(subs, ch)
-	}
-	h.mu.Unlock()
-
-	for _, ch := range subs {
+	defer h.mu.Unlock()
+	for ch := range h.subs[instanceID] {
 		select {
 		case ch <- n:
 		default:

@@ -89,7 +89,10 @@ func (h *UE5Handler) createInstance(ctx context.Context, c *app.RequestContext) 
 		c.JSON(consts.StatusBadRequest, map[string]any{"error": "id 不能为空"})
 		return
 	}
-	h.mgr.RegisterInstance(req.ID, req.DefaultEndpoint)
+	if inst := h.mgr.RegisterInstance(req.ID, req.DefaultEndpoint); inst == nil {
+		c.JSON(consts.StatusBadRequest, map[string]any{"error": "id 非法(仅允许字母/数字/下划线/连字符/点,长度 ≤64)"})
+		return
+	}
 	c.JSON(consts.StatusOK, ue5.InstanceInfo{
 		ID:              req.ID,
 		DefaultEndpoint: req.DefaultEndpoint,

@@ -55,7 +55,7 @@ type textEvent struct {
 
 // toolCallEvent 工具调用事件。
 type toolCallEvent struct {
-	Type string        `json:"type"`
+	Type string         `json:"type"`
 	Call types.ToolCall `json:"tool_call"`
 }
 
@@ -94,9 +94,13 @@ type ChatHandler struct {
 
 // chatEntry 一个 agent 的 Runner 及其并发锁。
 // Runner 本身不保证并发安全,同 agent 的请求串行执行。
+// 持有 (instanceID, agentName) 以便每次请求前同步最新的 agent 定义与
+// 工具列表(UE5 管理接口热更新后,Runner 内的 Agent 需跟随刷新)。
 type chatEntry struct {
-	mu     sync.Mutex
-	runner *agent.Runner
+	mu         sync.Mutex
+	runner     *agent.Runner
+	instanceID string
+	agentName  string
 }
 
 // NewChatHandler 构造对话处理器。
@@ -141,6 +145,18 @@ func (h *ChatHandler) Chat(ctx context.Context, c *app.RequestContext) {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
+	// 每次请求前同步最新 agent 定义与工具列表(UE5 侧热更新后实时生效)
+	if err := h.refreshRunner(entry); err != nil {
+		_ = writer.WriteEvent("", EventError, mustJSON(errorEvent{Type: EventError, Error: err.Error()}))
+		// agent 已被删除:移除缓存,使下次请求重新构建
+		h.mu.Lock()
+		if h.runners[entry.instanceID+"/"+entry.agentName] == entry {
+			delete(h.runners, entry.instanceID+"/"+entry.agentName)
+		}
+		h.mu.Unlock()
+		return
+	}
+
 	result, err := entry.runner.Run(ctx, req.SessionID, req.Message, sink)
 	if err != nil {
 		_ = writer.WriteEvent("", EventError, mustJSON(errorEvent{Type: EventError, Error: err.Error()}))
@@ -148,6 +164,28 @@ func (h *ChatHandler) Chat(ctx context.Context, c *app.RequestContext) {
 	}
 
 	_ = writer.WriteEvent("", EventDone, mustJSON(doneEvent{Type: EventDone, Reply: result.Reply, Usage: result.Usage}))
+}
+
+// refreshRunner 从注册空间实时读取 agent 定义与工具列表,同步到缓存的 Agent。
+// 调用方需持有 entry.mu。
+// 返回错误时(agent 已被删除)调用方应移除此缓存条目,使下次请求重建。
+func (h *ChatHandler) refreshRunner(entry *chatEntry) error {
+	agentDef, ok := h.mgr.GetAgent(entry.instanceID, entry.agentName)
+	if !ok {
+		return fmt.Errorf("agent %q 未在实例 %q 中注册", entry.agentName, entry.instanceID)
+	}
+
+	a := entry.runner.GetAgent()
+	a.SetSystemPrompt(agentDef.SystemPrompt)
+
+	tools := make([]types.Tool, 0, len(agentDef.Tools))
+	for _, name := range agentDef.Tools {
+		if reg, ok := h.mgr.GetTool(entry.instanceID, name); ok {
+			tools = append(tools, reg.ToTool())
+		}
+	}
+	a.SetTools(tools...)
+	return nil
 }
 
 // getOrCreateRunner 按 (instance, agent) 取缓存 Runner,不存在时构建。
@@ -184,7 +222,7 @@ func (h *ChatHandler) getOrCreateRunner(instanceID, agentName string) (*chatEntr
 	executor := tool.NewUE5Executor(h.mgr, h.cli, inst)
 	runner := agent.NewRunner(a, h.provider, executor, agent.WithDebug(h.debug))
 
-	e := &chatEntry{runner: runner}
+	e := &chatEntry{runner: runner, instanceID: instanceID, agentName: agentName}
 	h.runners[key] = e
 	return e, nil
 }
