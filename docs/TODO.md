@@ -1,6 +1,6 @@
 # TheDemiuge-Bridge 任务追踪
 
-> 最后更新：2026-08-01（ReAct 接线完成；MCP 规划迁往 UE5 端）
+> 最后更新：2026-08-01（17:20，MCP 后端解耦完成；命名 backend 化；MCP Server 规划迁往 UE5 端）
 
 ---
 
@@ -12,19 +12,21 @@
 - [X] `internal/config/` 重写 — 环境变量加载 + `ToDeepseekRequest()` 映射
 - [X] `internal/llm/` — 回调式两入口（Chat / ChatStream）、tool_calls 增量拼接、Provider 抽象、错误分类哨兵、httptest 单测（提交 3cfc325 前工作区完成）
 - [X] `internal/agent/react.go` — ReAct 循环（Runner）：LLM → tool_calls → 执行 → 回馈 → 再请求；actor 流式 / system 非流式；评述归档；最大轮次保护
-- [X] `internal/ue5/` — 实例注册中心（Manager + Instance + Client）：agent/tool 动态注册、落盘恢复、工具转发、变更广播
-- [X] `internal/mcp/` — MCP 协议层（JSON-RPC 分发 + SSE Hub + tools/prompts 方法）
+- [X] `internal/ue5/` → `internal/backend/` — 实例注册中心（Manager + Instance + Client）：agent/tool 动态注册、落盘恢复、工具转发、变更广播（2160ec9 更名）
+- [X] `internal/mcp/` — MCP 协议层（JSON-RPC 分发 + SSE Hub + **Registry 接口** + tools/prompts 方法）
 - [X] `internal/server/handler/` — UE5 管理 API（X-UE5-Key 鉴权）+ MCP 入口
-- [X] **`internal/tool/ue5_executor.go` — UE5 转发 ToolExecutor**（ReAct 与工具实现的解耦点）
-- [X] **`internal/server/handler/chat.go` — POST /api/chat SSE**：text / tool_call / commentary / done / error 事件；X-API-Key 鉴权（CHAT_API_KEY）
-- [X] **`cmd/server/main.go` 接线**：DeepSeek Provider + UE5Executor + ChatHandler + MCP 共存
-- [X] 单测：agent ReAct 循环（工具轮/单轮/最大轮次/无 executor）、tool 转发（结构化/文本/未注册/500）、**chat 集成测试（真实 Hertz + mock UE5 + mock LLM 全链路）**
+- [X] **`internal/mcp/registry.go` + `internal/backend/registry_adapter.go` — 工具执行走 mcp.Registry.ExecuteTool**（62a0a2a，取代 tool/UE5Executor）
+- [X] **`internal/server/handler/chat.go` — POST /api/chat SSE**：text / tool_call / commentary / done / error 事件；X-API-Key 鉴权（CHAT_API_KEY）；refreshRunner 热更新
+- [X] **`cmd/server/main.go` 接线**：DeepSeek Provider + RegistryAdapter + ChatHandler + MCP 共存
+- [X] 单测：agent ReAct 循环（工具轮/单轮/最大轮次/无 executor）、chat 集成测试（真实 Hertz + mock UE5 + mock LLM 全链路）、chat 热更新、历史窗口裁剪、Hub 竞态、超时兜底、消息 role 序列化、实例 ID 校验
 - [X] `go build ./...` / `go vet ./...` / `go test ./...` 全绿
 - [X] 文档纳入版本管理（docs/ARCHITECTURE.md + docs/TODO.md）
+- [X] **架构重构（62a0a2a）**：MCP 层与后端解耦（Registry 接口）；删除 internal/tool、internal/registry、config/*.yaml、RegistryConfig、ToolRegistry/AgentRegistry
+- [X] **命名统一（2160ec9）**：internal/ue5 → internal/backend（保留对外业务命名 ue5_handler.go / /api/v1/ue5 / X-UE5-Key）
+- [X] 历史窗口裁剪（275aa90）：maxHistoryMessages=30 + tool 配对保护
 
 ### 遗留（P0 收尾）
 
-- [ ] commit 当前工作区（MCP 架构改造 + ReAct 接线一批提交）
 - [ ] 端到端联调：真实 DEEPSEEK_API_KEY + UE5 mock 跑一遍 curl → SSE
 
 ---
@@ -44,7 +46,7 @@ UE5 游戏实例：
 
 Bridge (Go)：
   - ReAct 对话引擎（/api/chat SSE）
-  - UE5 注册中心（缓存 UE5 上报的定义，用于对话 + 恢复）
+  - backend 注册中心（缓存 UE5 上报的定义，用于对话 + 恢复；通过 mcp.Registry 接口暴露）
 ```
 
 ### 待办

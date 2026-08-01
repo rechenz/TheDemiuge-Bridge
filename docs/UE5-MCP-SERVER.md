@@ -287,7 +287,11 @@ UE5 侧 (agent/tool 定义变更时)              Bridge (Go)
 协议逻辑的权威参考在 Bridge 仓库：
 - `internal/mcp/protocol.go` — JSON-RPC 类型 + 错误码
 - `internal/mcp/server.go` — 方法分发 + 各 handler
-- `internal/ue5/types.go` — agent/tool 定义结构
+- `internal/mcp/registry.go` — Registry 通用接口（数据面/执行面抽象）
+- `internal/backend/types.go` — agent/tool 定义结构（原 internal/ue5，2160ec9 更名）
 - `internal/server/handler/mcp_handler.go` — HTTP/SSE 传输层
 
 对照 §3 骨架逐方法抄即可。
+
+> 2026-08-01 更新：`internal/ue5` 已更名 `internal/backend`；`internal/tool/` 已删除，
+> 工具执行统一走 `mcp.Registry.ExecuteTool`（`backend.RegistryAdapter` 实现）。

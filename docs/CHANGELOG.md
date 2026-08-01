@@ -4,6 +4,43 @@
 
 ---
 
+## 2026-08-01（17:20）— MCP 后端解耦 + 命名 backend 化
+
+### 完成
+
+1. **MCP 协议层与后端彻底解耦（62a0a2a）**
+   - 新增 `internal/mcp/registry.go`：`Registry` 通用接口
+     - 数据面：`Tools` / `GetTool` / `Agents` / `GetAgent`（实时读取，`(val, bool)` 双返回）
+     - 执行面：`ExecuteTool(ctx, instanceID, name, args) (string, error)`
+     - 通用类型：`RegisteredAgent`（协议层 agent 描述）、`Change`/`ChangeKind`（从 ue5 上移）
+   - 新增 `internal/backend/registry_adapter.go`：`RegistryAdapter` 把 `Manager + Client` 实现为 `mcp.Registry`
+   - `mcp.Server` / `handler.ChatHandler` 只依赖 `Registry` 接口——**mcp 包不再 import ue5（依赖方向反转）**
+   - chat.go 新增 `registryExecutor`（实现 `agent.ToolExecutor`），取代被删的 `tool.UE5Executor`
+   - `internal/mcp/hub.go`：`OnChange` 用 mcp.Change（不再依赖 ue5 类型）
+
+2. **删除（YAGNI 清理）**
+   - `internal/tool/`（ue5_executor.go + 测试）
+   - `internal/registry/`（decode.go / load.go / load_test.go）——YAML 静态注册废弃
+   - `config/agents.yaml` / `config/tools.yaml`、`config.RegistryConfig`（AGENTS_FILE/TOOLS_FILE）
+   - `types.ToolRegistry` / `types.AgentRegistry`、`ue5.FromTool` 反向转换链
+
+3. **命名统一（2160ec9）**
+   - `internal/ue5` → `internal/backend`，包名 `ue5` → `backend`，注释通用化（"UE5"→"后端"）
+   - 保留：`ue5_handler.go` 文件名、`/api/v1/ue5/*`、`X-UE5-Key`、`UE5Config`、`UE5_API_KEY` 环境变量
+
+### 架构收益
+
+- MCP 协议层与任何后端解耦——接本地工具/其他引擎只需新写一个 Registry 实现
+- 依赖方向：`mcp ← backend`（backend 复用 mcp 的类型），mcp 保持纯协议
+- 单测仍全绿（chat 集成测试/热更新/历史窗口/hub 竞态/超时/message role/ID 校验）
+
+### 下一步
+
+- [ ] 真实 DEEPSEEK_API_KEY 端到端联调
+- [ ] UE5 端 MCP Server 实现（照 docs/UE5-MCP-SERVER.md）
+
+---
+
 ## 2026-08-01 — P0 核心对话跑通 + MCP 迁 UE5 决策
 
 ### 完成

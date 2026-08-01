@@ -1,7 +1,7 @@
 # TheDemiuge-Bridge 架构设计
 
-> 最后更新：2026-08-01
-> 状态：P0 核心对话跑通 ✅（ReAct 接线完成）；MCP 规划迁往 UE5 端（见 P1）
+> 最后更新：2026-08-01（17:20）
+> 状态：P0 核心对话跑通 ✅（ReAct 接线完成）；**MCP 协议层与后端彻底解耦 ✅（mcp.Registry 接口 + backend.RegistryAdapter）**；MCP Server 规划迁往 UE5 端（见 P1）
 
 ---
 
@@ -42,15 +42,16 @@
 │  ┌──────────────────────────┴───────────────────────────┐    │
 │  │               Core Logic                             │    │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │    │
-│  │  │ Agent        │  │ Tool         │  │ LLM        │  │    │
-│  │  │ (ReAct Runner│  │ (UE5Executor │  │ (Provider  │  │    │
-│  │  │  + 会话状态) │  │  转发 UE5)   │  │  抽象层)   │  │    │
+│  │  │ Agent        │  │ mcp.Registry │  │ LLM        │  │    │
+│  │  │ (ReAct Runner│  │  (通用注册    │  │ (Provider  │  │    │
+│  │  │  + 会话状态) │  │  接口,执行面) │  │  抽象层)   │  │    │
 │  │  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘  │    │
 │  │         │                 │                 │         │    │
 │  │         └─────────┬───────┴─────────────────┘         │    │
 │  │                   ▼                                   │    │
 │  │  ┌──────────────────────────────────────────────┐     │    │
-│  │  │  ue5.Manager 注册中心（实例/agent/tool,落盘） │     │    │
+│  │  │  backend.RegistryAdapter（实现 mcp.Registry）│     │    │
+│  │  │  └─ Manager(落盘) + Client(HTTP 转发)             │     │    │
 │  │  └──────────────────────────────────────────────┘     │    │
 │  └────────────────────────────────────────────────────────┘    │
 │                        │                                      │
@@ -65,6 +66,14 @@
 > 2026-08-01 架构决策：MCP Server 最终迁往 UE5 端（进程内,零转发）。
 > Go 侧 internal/mcp/ 保留作协议参考与开发期调试入口,不再扩展。
 > 玩家对话走 Bridge /api/chat；外部 Agent 通过 UE5 端 MCP 直连工具。
+>
+> **2026-08-01（17:00）架构重构（commit 62a0a2a + 2160ec9）**：
+> - MCP 协议层与后端彻底解耦：新增 `mcp.Registry` 通用接口（数据面 Tools/Agents/GetXxx + 执行面 ExecuteTool），
+>   `backend.RegistryAdapter` 把「UE5 注册中心 + HTTP 转发」实现为该接口。
+> - `internal/ue5` 更名 `internal/backend`（包名 `ue5` → `backend`），注释通用化——backend 是通用后端接入层，UE5 只是其一实现。
+> - 删除 `internal/tool/`（UE5Executor → chat.go `registryExecutor` + RegistryAdapter）、`internal/registry/`（YAML 静态注册）、
+>   `config/agents.yaml` / `config/tools.yaml` / `RegistryConfig` / `ToolRegistry` / `AgentRegistry`。
+> - 保留业务命名：`ue5_handler.go`、`/api/v1/ue5/*`、`X-UE5-Key`、`UE5Config`（对外接口不变）。
 ```
 
 ---
@@ -94,7 +103,7 @@ internal/server/handler/
 - 路由分发到 handler
 - 请求验证
 - 响应格式化
-- 不包含业务逻辑（业务在 agent/ue5/tool 层）
+- 不包含业务逻辑（业务在 agent/backend/mcp 层）
 
 ### 3.2 Store Layer — `internal/store/`（接口隔离）
 
@@ -135,8 +144,9 @@ AI 交互核心，Agent + ReAct。
 
 ```
 internal/agent/
-├── react.go       # Runner：ReAct 循环（LLM → tool_calls → 执行 → 回馈 → 再请求）
-└── react_test.go  # 单测（工具轮/单轮/最大轮次/无 executor）
+├── react.go              # Runner：ReAct 循环 + 历史窗口裁剪（maxHistoryMessages=30）+ GetAgent 热更新
+├── react_test.go         # 单测（工具轮/单轮/最大轮次/无 executor）
+└── react_history_test.go # 历史窗口裁剪单测（2026-08-01 275aa90）
 ```
 
 **Agent.Run 流程：**
@@ -168,45 +178,38 @@ DeepSeek 流式响应中 tool_calls 是增量出现的（delta.tool_calls 携带
 - **P1 阶段（多 NPC 并发会话）**：拆出轻量 service 层（会话生命周期 + NPC 编排），handler 只做 HTTP 解析
 - 因此 4.1 数据流图中的 Service 列在 P0 表示 handler 内的编排逻辑（虚线），P1 起独立成层
 
-### 3.4 Tool System — `internal/tool/` ✅（2026-08-01 完成）
+### 3.4 Tool System — `internal/tool/`（已删除）+ `mcp.Registry`（2026-08-01 重构）
 
-Agent 的工具执行层。**架构决策：工具实际执行在 UE5 侧，Bridge 只做转发。**
+> **commit 62a0a2a 重构**：`internal/tool/` 包删除。工具执行统一走 `mcp.Registry.ExecuteTool` 接口，
+> 由后端适配器（`backend.RegistryAdapter`）实现——**ReAct 循环与任何特定后端解耦**。
 
-```
-internal/tool/
-└── ue5_executor.go    # UE5Executor：实现 agent.ToolExecutor，转发到 UE5 执行
-```
+**Registry 接口（`internal/mcp/registry.go`，本次重构核心）：**
 
-**ToolExecutor 接口（agent 包定义，tool 包实现）：**
 ```go
-type ToolExecutor interface {
-    Execute(ctx, call types.ToolCall) (result string, err error)
+type Registry interface {
+    // 数据面:从后端注册空间实时读取
+    Tools(instanceID string) ([]types.Tool, bool)
+    GetTool(instanceID, name string) (types.Tool, bool)
+    Agents(instanceID string) ([]RegisteredAgent, bool)
+    GetAgent(instanceID, name string) (RegisteredAgent, bool)
+    // 执行面:按后端协议执行工具
+    ExecuteTool(ctx context.Context, instanceID, name string, args map[string]any) (string, error)
 }
 ```
 
-**UE5Executor 执行流程：**
-1. 从 ue5.Manager 取工具注册条目（按实例隔离）
-2. 解析模型生成的参数 JSON（非法时回馈错误给模型）
-3. ue5.Client.Forward 转发到 UE5 侧（地址解析：工具 Endpoint → 实例 DefaultEndpoint → 全局默认）
+**调用方（两个，都只认接口）：**
+1. `mcp.Server` — tools/call、tools/list、prompts/list、prompts/get
+2. `handler.ChatHandler` — ReAct 工具调用经 `registryExecutor`（实现 `agent.ToolExecutor`）委托 ExecuteTool
+
+**执行流程（UE5 后端）：**
+1. `registryExecutor.Execute` 解析模型参数 JSON（非法时回馈错误给模型）
+2. `RegistryAdapter.ExecuteTool`：从 backend.Manager 取工具注册条目（按实例隔离）
+3. `backend.Client.Forward` 转发到后端侧（地址解析：工具 Endpoint → 实例 DefaultEndpoint → 全局默认）
 4. 返回结果文本（结构化 result 序列化 / 自由文本原样）
 
 **未来本地工具（2026-07-31 设计保留，暂未实现）：**
 
-手写 JSON Schema 繁琐易错。预留反射工具 `FromStruct(v any) (*JSONSchema, error)`，让工具作者用 struct + tag 定义参数，自动生成 schema：
-
-```go
-// 工具作者只需写这个：
-type WaveHandArgs struct {
-    Target string `json:"target" jsonschema:"挥手目标角色,required"`
-    Times  int    `json:"times" jsonschema:"挥手次数,default=1"`
-}
-
-// 注册时自动生成 schema，不用手写
-schema, _ := FromStruct(WaveHandArgs{})
-```
-
-> ⚠️ FromStruct 属于「本地工具」路线（如 get_time）。当前所有工具都注册在 UE5 侧，
-> 本地工具暂不接入；需要时再实现 registry.go + FromStruct + tools/。
+手写 JSON Schema 繁琐易错。预留反射工具 `FromStruct(v any) (*JSONSchema, error)`，让工具作者用 struct + tag 定义参数，自动生成 schema。届时实现一个直接调用的 Registry 实现即可，协议层零改动。
 
 ### 3.5 LLM Client — `internal/llm/` ✅（已完成 2026-08-01）
 
@@ -285,17 +288,19 @@ Recall(npcID) → Memory  // 召回 → 注入 prompt
 
 ### 3.7 Config — `internal/config/` ✅（已完成）
 
-2026-07-31 重写完成（工作区未提交）：环境变量加载 + `ToDeepseekRequest()` 映射到 DeepSeek 请求体，覆盖 Thinking / ReasoningEffort / ResponseFormat / Stop / StreamOptions 等可选字段。
+环境变量加载 + `ToChatRequest()` 映射到 DeepSeek 请求体，覆盖 Thinking / ReasoningEffort / ResponseFormat / Stop / StreamOptions 等可选字段。
+- 2026-08-01（62a0a2a）：删除 `RegistryConfig`（AGENTS_FILE / TOOLS_FILE 环境变量），静态 YAML 注册废弃
 
 ### 3.8 Types — `internal/types/` ✅（已完成，重构地基）
 
-2026-07-31 完整重写（工作区未提交），覆盖 DeepSeek Chat Completions 官方文档全部类型：
+覆盖 DeepSeek Chat Completions 官方文档全部类型：
 
 ```
 internal/types/
-├── message.go    # Message 接口 + System/User/Assistant/Tool 四类消息
+├── message.go    # Message 接口 + System/User/Assistant/Tool 四类消息（含显式 Role + NewXxx 构造器）
 ├── deepseek.go   # 请求体 / 非流式响应 / SSE chunk / Usage / Logprobs / 错误体
-└── tools.go      # Tool 定义 + JSON Schema + ToolCall + ToolChoice
+├── tools.go      # Tool 定义 + JSON Schema + ToolCall + ToolChoice
+└── agent.go      # Agent / AgentState / SessionContext（纯数据类型）
 ```
 
 **设计要点：**
@@ -303,6 +308,7 @@ internal/types/
 - `StopSequence` / `ToolChoice` 自定义 Marshal/Unmarshal，兼容官方 oneOf 语义
 - `DeepSeekAPIError` 实现 error 接口，便于 agent 层判断重试/降级
 - 后续换 OpenAI / 本地模型只需新增 types + provider，不动上层
+- 2026-08-01：消息加显式 `Role` 字段（275aa90）；删除 `ToolRegistry` / `AgentRegistry`（62a0a2a，注册职责交给 mcp.Registry）
 
 ---
 
@@ -344,9 +350,9 @@ internal/types/
 
 > P0 阶段 handler 内完成会话/NPC 编排（相当于数据流里的 Service 职责）；P1 起独立为 `service/` 层。
 >
-> 工具执行环节（finish_reason == tool_calls）：Runner → tool.UE5Executor → ue5.Client.Forward
-> → UE5 游戏实例进程内执行 → 结果文本回馈 LLM。玩家侧通过 SSE 实时收到
-> `text` / `tool_call` / `commentary` / `done` / `error` 事件（见 chat.go 协议）。
+> 工具执行环节（finish_reason == tool_calls）：Runner → handler.registryExecutor → mcp.Registry.ExecuteTool
+> → backend.RegistryAdapter → backend.Client.Forward → UE5 游戏实例进程内执行 → 结果文本回馈 LLM。
+> 玩家侧通过 SSE 实时收到 `text` / `tool_call` / `commentary` / `done` / `error` 事件（见 chat.go 协议）。
 
 ### 4.2 NPC 离屏记忆蒸馏（远期，独立路线）
 
@@ -365,20 +371,21 @@ internal/types/
 
 | 模块      | 应有                       | 现有                                                        | 状态                                       |
 | --------- | -------------------------- | ----------------------------------------------------------- | ------------------------------------------ |
-| `types/`  | 完整 API 类型体系          | `message.go` + `deepseek.go` + `tools.go`                   | ✅ 已完成                                   |
+| `types/`  | 完整 API 类型体系          | `message.go` + `deepseek.go` + `tools.go` + `agent.go`      | ✅ 已完成                                   |
 | `config/` | 配置加载 + 请求映射        | `config.go`（ToChatRequest + CHAT_API_KEY）                 | ✅ 已完成                                   |
 | `server/` | Hertz + handler            | main.go 接线 + handler/{chat,ue5_handler,mcp_handler}       | ✅ 已完成（2026-08-01）                     |
-| `agent/`  | Agent Run + ReAct          | `react.go`（Runner + EventSink + 评述归档）                 | ✅ 已完成（2026-08-01）                     |
-| `tool/`   | ToolExecutor + 工具实现    | `ue5_executor.go`（转发 UE5）+ 测试                          | ✅ 已完成（2026-08-01）                     |
+| `agent/`  | Agent Run + ReAct          | `react.go`（Runner + EventSink + 评述归档 + 历史窗口裁剪）  | ✅ 已完成（2026-08-01）                     |
+| `tool/`   | ToolExecutor + 工具实现    | ~~`ue5_executor.go`~~ **已删除**，执行走 `mcp.Registry.ExecuteTool` | ✅ 已重构（2026-08-01 62a0a2a）             |
 | `llm/`    | 统一入口                   | provider + deepseek/（含单测）                              | ✅ 已重建（2026-08-01）                     |
-| `mcp/`    | MCP 协议层                 | 协议分发 + SSE Hub + tools/prompts                          | ✅ 已完成；**规划迁往 UE5 端**（P1）         |
-| `ue5/`    | 实例注册中心               | Manager + Instance + Client（落盘/转发/变更广播）           | ✅ 已完成（2026-08-01）                     |
+| `mcp/`    | MCP 协议层                 | 协议分发 + SSE Hub + **Registry 接口** + tools/prompts     | ✅ 已完成；**规划迁往 UE5 端**（P1）         |
+| `backend/`| 通用后端接入层（原 ue5/）  | RegistryAdapter + Manager + Instance + Client（落盘/转发/变更广播） | ✅ 已完成（2026-08-01，2160ec9 更名）       |
+| `registry/`| YAML 静态注册             | ~~decode/load/load_test~~ **已删除**                       | 🗑 已删除（62a0a2a）                         |
 | `store/`  | NPC/Session/Memory 接口    | 无                                                          | ❌ 未开工（P2，接口隔离为微服务学习方向预留） |
 
 **当前可编译可运行**（`go build` / `go vet` / `go test` 全绿）：
-- 玩家对话：`POST /api/chat` → ReAct → DeepSeek → 工具转发 UE5 → SSE 回推
+- 玩家对话：`POST /api/chat` → ReAct → DeepSeek → mcp.Registry.ExecuteTool（backend 转发）→ SSE 回推
 - 注册管理：`/api/v1/ue5/*` 动态注册实例/agent/tool，落盘恢复
-- MCP：`/mcp/{instance_id}` JSON-RPC（保留作参考）
+- MCP：`/mcp/{instance_id}` JSON-RPC（保留作参考），通过 Registry 接口读取/执行
 
 **2026-07-31 架构评审结论：**
 - LLM 统一入口：`<-chan Token` → **回调式两入口**（Chat / ChatStream）
@@ -399,14 +406,14 @@ internal/types/
 - [x] `internal/config/` 重写（环境变量 → DeepSeek 请求映射）
 - [x] 提交 types/config 地基版本（待做）
 
-**待完成：**
-1. [x] LLM 客户端重写（`internal/llm/`）：**回调式两入口** + Tools 通道 + finish_reason 保留 + 错误分类 + 单测（2026-08-01）
-2. [ ] Agent 层重建（`internal/agent/`）：Run 循环 + Prompt Builder + tool_calls 循环（流结束再判断工具调用）
-3. [ ] Tool 系统（`internal/tool/`）：Registry + **FromStruct schema 反射** + 示例工具（time.go）
-4. [ ] Server 层重建（`internal/server/`）：chat handler + 路由注册 + main.go 接线（P0 不设 service 层）
-5. [ ] 协议落地：**SSE 批量推送 + error 事件 + X-API-Key 鉴权**
-6. [ ] 验证：本地 curl → HTTP SSE → DeepSeek → tool call → 返回
-7. [ ] 提交 P0 完成版本
+**待完成（全部完成，2026-08-01）：**
+1. [x] LLM 客户端重写（`internal/llm/`）：**回调式两入口** + Tools 通道 + finish_reason 保留 + 错误分类 + 单测
+2. [x] Agent 层重建（`internal/agent/`）：Run 循环 + Prompt Builder + tool_calls 循环（流结束再判断工具调用）+ 历史窗口裁剪
+3. [x] Tool 系统：~~`internal/tool/`~~ → **`mcp.Registry` 接口 + `backend.RegistryAdapter`**（62a0a2a；FromStruct 反射留待本地工具路线）
+4. [x] Server 层重建（`internal/server/`）：chat handler + 路由注册 + main.go 接线（P0 不设 service 层）
+5. [x] 协议落地：**SSE 事件 + error 事件 + X-API-Key 鉴权**
+6. [x] 验证：集成测试（真实 Hertz + mock UE5 + mock LLM 全链路）替代本地 curl 验证
+7. [x] 提交 P0 完成版本（34cbb4e ~ 2160ec9）
 
 ### P1 — NPC 管理
 1. 拆出轻量 `service/` 层（会话生命周期 + NPC 编排，P0 时在 handler 内）
