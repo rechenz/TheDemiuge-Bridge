@@ -125,6 +125,19 @@ func WithTools(tools ...Tool) AgentOption {
 	}
 }
 
+// SetTools 热更新该 Agent 的可调用 tool 列表。
+// 与 WithTools 不同,SetTools 是运行时可变接口,
+// 供 UE5 侧动态更新工具定义后同步到 Agent 的可调用范围。
+func (a *Agent) SetTools(tools ...Tool) {
+	a.Tools = tools
+}
+
+// SetSystemPrompt 热更新该 Agent 的角色 prompt。
+// 供 UE5 侧动态更新 agent 定义后同步。
+func (a *Agent) SetSystemPrompt(prompt string) {
+	a.SystemPrompt = prompt
+}
+
 // NewAgent 构造一个 Agent。
 // opts 可省略,此时使用默认空状态。
 func NewAgent(name string, agentType AgentType, opts ...AgentOption) *Agent {

@@ -287,6 +287,30 @@ func (r *ToolRegistry) Register(t Tool) error {
 	return nil
 }
 
+// Upsert 注册或覆盖一个 Tool(热更新语义)。
+// 同名已存在时直接覆盖,用于 UE5 侧动态更新工具定义。
+func (r *ToolRegistry) Upsert(t Tool) {
+	if r.tools == nil {
+		r.tools = make(map[string]Tool)
+	}
+	if t.Function.Name == "" {
+		return
+	}
+	r.tools[t.Function.Name] = t
+}
+
+// Remove 按名称移除 Tool,返回是否存在。
+func (r *ToolRegistry) Remove(name string) bool {
+	if r.tools == nil {
+		return false
+	}
+	if _, ok := r.tools[name]; !ok {
+		return false
+	}
+	delete(r.tools, name)
+	return true
+}
+
 // Get 按名称获取 Tool;不存在时返回 (Tool, false)。
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	t, ok := r.tools[name]
