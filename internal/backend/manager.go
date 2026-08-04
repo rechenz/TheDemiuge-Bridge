@@ -222,7 +222,7 @@ func (m *Manager) UpsertTools(instanceID string, regs []ToolReg) error {
 	}
 
 	// 先在校验副本上演练,全部通过后统一写回真实注册空间
-	dry := NewInstance(inst.ID, inst.DefaultEndpoint)
+	dry := inst.clone()
 	for _, reg := range regs {
 		if err := dry.upsertTool(reg); err != nil {
 			return err
@@ -309,8 +309,11 @@ func (m *Manager) UpsertAgents(instanceID string, defs []AgentDef) error {
 		inst = m.registerInstanceLocked(instanceID, "")
 	}
 
-	// 先在校验副本上演练,全部通过后统一写回真实注册空间
-	dry := NewInstance(inst.ID, inst.DefaultEndpoint)
+	// 先在校验副本上演练,全部通过后统一写回真实注册空间。
+	// 副本必须继承实例已注册的 tools/agents:upsertAgent 会校验引用的工具
+	// 已存在,空副本会把引用已注册工具的 agent 误拒为"工具未注册"。
+	// (回归:TestUpsertAgents_BatchWithToolRefs)
+	dry := inst.clone()
 	for _, def := range defs {
 		if err := dry.upsertAgent(def); err != nil {
 			return err

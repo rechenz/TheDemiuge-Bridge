@@ -124,6 +124,20 @@ func (i *Instance) agentsSnapshot() []AgentDef {
 	return out
 }
 
+// clone 返回注册空间的副本(独立 map),供 Manager 事务校验演练使用。
+// 注意:ToolReg/AgentDef 含嵌套指针(Parameters/Tools []string),此处是浅拷贝,
+// 副本与原件共享嵌套数据——仅用于只读校验,切勿经副本修改嵌套字段。
+func (i *Instance) clone() *Instance {
+	c := NewInstance(i.ID, i.DefaultEndpoint)
+	for name, reg := range i.tools {
+		c.tools[name] = reg
+	}
+	for name, def := range i.agents {
+		c.agents[name] = def
+	}
+	return c
+}
+
 // ── 概要 ────────────────────────────────────────────────────────────────────
 
 // Info 返回实例概要信息。
