@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="985" viewBox="0 0 1320 985" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="arr-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#888888"/>
+    </marker>
+    <marker id="arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e03131"/>
+    </marker>
+  </defs>
+
+  <!-- 背景 -->
+  <rect x="0" y="0" width="1320" height="985" fill="#ffffff"/>
+
+  <!-- 系统边界框 -->
+  <rect x="50" y="20" width="1180" height="700" fill="none" stroke="#9aa5b1" stroke-width="1.5"/>
+  <text x="62" y="39" font-size="12" font-weight="bold" fill="#5b6470">▣ Bridge 进程内 · TheDemiuge-Bridge (Go 后端)</text>
+
+  <!-- 层标签 -->
+  <g font-size="9" fill="#909399">
+    <text x="58" y="149">① 入口层</text>
+    <text x="58" y="234">② 路由</text>
+    <text x="58" y="319">③ 处理层</text>
+    <text x="58" y="404">④ 对话核心</text>
+    <text x="58" y="489">⑤ 注册中心</text>
+    <text x="58" y="574">⑥ 协议层</text>
+    <text x="58" y="659">⑦ 支撑层</text>
+    <text x="58" y="883">⑧ 外部</text>
+  </g>
+
+  <!-- ══ 树形边（灰实线，无箭头） ══ -->
+  <g stroke="#999999" stroke-width="1" fill="none">
+    <path d="M 750 90 V 110 H 665 V 130"/>
+    <path d="M 665 174 V 200 H 230 V 215"/>
+    <path d="M 665 174 V 200 H 540 V 215"/>
+    <path d="M 665 174 V 200 H 850 V 215"/>
+    <path d="M 665 174 V 200 H 1100 V 215"/>
+    <path d="M 230 263 V 300"/>
+    <path d="M 540 263 V 300"/>
+    <path d="M 850 263 V 300"/>
+    <path d="M 230 348 V 470"/>
+    <path d="M 540 348 V 370 H 660 V 385"/>
+  </g>
+
+  <!-- ══ 依赖/实现边（灰虚线 + 箭头） ══ -->
+  <g stroke="#888888" stroke-width="1" fill="none" stroke-dasharray="5,3">
+    <path d="M 340 496 H 372" marker-end="url(#arr-gray)"/>
+    <path d="M 540 411 H 498" marker-end="url(#arr-gray)"/>
+    <path d="M 360 581 H 542" marker-end="url(#arr-gray)"/>
+    <path d="M 730 522 V 545 H 650 V 557" marker-end="url(#arr-gray)"/>
+  </g>
+  <g font-size="9" fill="#888888">
+    <text x="344" y="488">包含</text>
+    <text x="502" y="402">执行</text>
+    <text x="400" y="573">依赖接口</text>
+    <text x="662" y="537">实现</text>
+  </g>
+
+  <!-- ══ 外部交互（红虚线 + 箭头，绕树外走） ══ -->
+  <g stroke="#e03131" stroke-width="1.5" fill="none" stroke-dasharray="7,4">
+    <path d="M 540 910 V 940 H 30 V 200 H 540 V 217" marker-end="url(#arr-red)"/>
+    <path d="M 230 910 V 940 H 44 V 200 H 230 V 217" marker-end="url(#arr-red)"/>
+    <path d="M 240 640 V 625 H 1255 V 940 H 850 V 908" marker-end="url(#arr-red)"/>
+    <path d="M 980 522 V 540 H 1240 V 940 H 230 V 908" marker-end="url(#arr-red)"/>
+    <path d="M 1100 910 V 940 H 1270 V 200 H 850 V 217" marker-end="url(#arr-red)"/>
+  </g>
+
+  <!-- ══ 节点 ══ -->
+
+  <!-- L0 根 -->
+  <rect x="540" y="40" width="420" height="50" rx="8" fill="#1f3251" stroke="#1f3251"/>
+  <text x="750" y="64" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">TheDemiuge-Bridge · 引擎无关 AI 通信框架</text>
+  <text x="750" y="80" font-size="10" fill="#c8d4e4" text-anchor="middle">Go 后端 · Bridge = ReAct 对话 + 注册中心 · MCP Server 在 UE5 端</text>
+
+  <!-- L1 入口层 -->
+  <rect x="525" y="130" width="280" height="44" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="665" y="152" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">入口层 cmd/server/main.go</text>
+  <text x="665" y="167" font-size="10" fill="#333333" text-anchor="middle">config.Load() · 依赖组装 · 优雅退出</text>
+
+  <!-- L2 路由 -->
+  <g>
+    <rect x="120" y="215" width="220" height="48" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="230" y="237" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">POST /api/v1/ue5/*</text>
+    <text x="230" y="251" font-size="10" fill="#333333" text-anchor="middle">UE5 管理接口 · 鉴权 X-UE5-Key</text>
+
+    <rect x="420" y="215" width="240" height="48" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="540" y="237" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">POST /api/chat</text>
+    <text x="540" y="251" font-size="10" fill="#333333" text-anchor="middle">NPC 对话入口 · SSE 流式</text>
+
+    <rect x="740" y="215" width="220" height="48" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="850" y="237" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">/mcp/*</text>
+    <text x="850" y="251" font-size="10" fill="#333333" text-anchor="middle">MCP 协议入口 · JSON-RPC 2.0</text>
+
+    <rect x="990" y="215" width="220" height="48" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="1100" y="237" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">GET /api/v1/health</text>
+    <text x="1100" y="251" font-size="10" fill="#333333" text-anchor="middle">健康检查 · 实例计数</text>
+  </g>
+
+  <!-- L3 处理层 -->
+  <g>
+    <rect x="120" y="300" width="220" height="48" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="230" y="322" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">UE5Handler</text>
+    <text x="230" y="336" font-size="10" fill="#333333" text-anchor="middle">实例 / agent / tool CRUD</text>
+    <text x="230" y="349" font-size="10" fill="#333333" text-anchor="middle">热更新 + 落盘</text>
+
+    <rect x="420" y="300" width="240" height="48" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="540" y="322" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">ChatHandler</text>
+    <text x="540" y="336" font-size="10" fill="#333333" text-anchor="middle">runner 池 · 每请求 syncAgent</text>
+    <text x="540" y="349" font-size="10" fill="#333333" text-anchor="middle">SetSystemPrompt / SetTools 热同步</text>
+
+    <rect x="740" y="300" width="220" height="48" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="850" y="322" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">MCPHandler</text>
+    <text x="850" y="336" font-size="10" fill="#333333" text-anchor="middle">MCP 分发 → mcp.Server</text>
+    <text x="850" y="349" font-size="10" fill="#333333" text-anchor="middle">SSE 订阅 list_changed</text>
+  </g>
+
+  <!-- L4 对话核心 -->
+  <g>
+    <rect x="300" y="385" width="200" height="52" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="400" y="407" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">ToolExecutor</text>
+    <text x="400" y="421" font-size="10" fill="#333333" text-anchor="middle">接口 · 工具执行抽象</text>
+    <text x="400" y="434" font-size="10" fill="#333333" text-anchor="middle">(由 UE5 端实现)</text>
+
+    <rect x="540" y="385" width="240" height="52" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="660" y="405" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">Runner · ReAct 循环</text>
+    <text x="660" y="421" font-size="10" fill="#333333" text-anchor="middle">LLM → 判 tool_call → 执行 → 回馈</text>
+    <text x="660" y="434" font-size="10" fill="#333333" text-anchor="middle">上限 10 轮 · 历史 30 条 · 实时读 Tools</text>
+
+    <rect x="820" y="385" width="200" height="52" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="920" y="407" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">EventSink</text>
+    <text x="920" y="421" font-size="10" fill="#333333" text-anchor="middle">OnText / OnToolCall / OnCommentary</text>
+    <text x="920" y="434" font-size="10" fill="#333333" text-anchor="middle">SSE 推送 · 断连终止</text>
+  </g>
+
+  <!-- L5 注册中心 -->
+  <g>
+    <rect x="120" y="470" width="220" height="52" rx="6" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="230" y="492" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">Manager</text>
+    <text x="230" y="506" font-size="10" fill="#333333" text-anchor="middle">注册中心 · 锁串行化</text>
+    <text x="230" y="519" font-size="10" fill="#333333" text-anchor="middle">Upsert / Delete · 落盘恢复</text>
+
+    <rect x="370" y="470" width="220" height="52" rx="6" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="480" y="492" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">Instance</text>
+    <text x="480" y="506" font-size="10" fill="#333333" text-anchor="middle">单实例注册空间</text>
+    <text x="480" y="519" font-size="10" fill="#333333" text-anchor="middle">tools.yaml + agents.yaml</text>
+
+    <rect x="620" y="470" width="220" height="52" rx="6" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="730" y="492" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">RegistryAdapter</text>
+    <text x="730" y="506" font-size="10" fill="#333333" text-anchor="middle">实现 mcp.Registry</text>
+    <text x="730" y="519" font-size="10" fill="#333333" text-anchor="middle">数据面实时读 · 执行面转发</text>
+
+    <rect x="870" y="470" width="220" height="52" rx="6" fill="#ffe6cc" stroke="#d79b00"/>
+    <text x="980" y="492" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">Client</text>
+    <text x="980" y="506" font-size="10" fill="#333333" text-anchor="middle">工具执行 HTTP 转发</text>
+    <text x="980" y="519" font-size="10" fill="#333333" text-anchor="middle">→ UE5 端点</text>
+  </g>
+
+  <!-- L6 协议层 -->
+  <g>
+    <rect x="120" y="555" width="240" height="52" rx="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="240" y="577" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">mcp.Server</text>
+    <text x="240" y="591" font-size="10" fill="#333333" text-anchor="middle">tools/list · tools/call</text>
+    <text x="240" y="604" font-size="10" fill="#333333" text-anchor="middle">prompts/list · prompts/get · ping</text>
+
+    <rect x="540" y="555" width="220" height="52" rx="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="650" y="577" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">mcp.Registry</text>
+    <text x="650" y="591" font-size="10" fill="#333333" text-anchor="middle">通用接口 · 协议层只依赖它</text>
+
+    <rect x="860" y="555" width="220" height="52" rx="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="970" y="577" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">mcp.Hub</text>
+    <text x="970" y="591" font-size="10" fill="#333333" text-anchor="middle">SSE 订阅广播</text>
+    <text x="970" y="604" font-size="10" fill="#333333" text-anchor="middle">tools/agents list_changed</text>
+  </g>
+
+  <!-- L7 支撑层 -->
+  <g>
+    <rect x="120" y="640" width="240" height="52" rx="6" fill="#e8eef7" stroke="#7a9ec2"/>
+    <text x="240" y="662" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">internal/llm</text>
+    <text x="240" y="676" font-size="10" fill="#333333" text-anchor="middle">DeepseekProvider</text>
+    <text x="240" y="689" font-size="10" fill="#333333" text-anchor="middle">Chat · ChatStream(SSE)</text>
+
+    <rect x="540" y="640" width="220" height="52" rx="6" fill="#e8eef7" stroke="#7a9ec2"/>
+    <text x="650" y="662" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">internal/types</text>
+    <text x="650" y="676" font-size="10" fill="#333333" text-anchor="middle">Agent / Tool / Message</text>
+    <text x="650" y="689" font-size="10" fill="#333333" text-anchor="middle">ToolCall / ChatOptions</text>
+
+    <rect x="860" y="640" width="220" height="52" rx="6" fill="#e8eef7" stroke="#7a9ec2"/>
+    <text x="970" y="662" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">internal/config</text>
+    <text x="970" y="676" font-size="10" fill="#333333" text-anchor="middle">服务 + UE5 + LLM 配置</text>
+    <text x="970" y="689" font-size="10" fill="#333333" text-anchor="middle">环境变量加载</text>
+  </g>
+
+  <!-- L8 外部实体 -->
+  <g>
+    <rect x="120" y="850" width="220" height="60" rx="6" fill="#ffffff" stroke="#999999" stroke-dasharray="6,4"/>
+    <text x="230" y="874" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">UE5 游戏端</text>
+    <text x="230" y="890" font-size="10" fill="#333333" text-anchor="middle">动态注册 agent / tool</text>
+    <text x="230" y="903" font-size="10" fill="#333333" text-anchor="middle">工具执行 · MCP Server(进程内)</text>
+
+    <rect x="420" y="850" width="240" height="60" rx="6" fill="#ffffff" stroke="#999999" stroke-dasharray="6,4"/>
+    <text x="540" y="874" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">玩家 / 前端</text>
+    <text x="540" y="890" font-size="10" fill="#333333" text-anchor="middle">POST /api/chat 对话</text>
+    <text x="540" y="903" font-size="10" fill="#333333" text-anchor="middle">SSE 流式接收回复</text>
+
+    <rect x="740" y="850" width="220" height="60" rx="6" fill="#ffffff" stroke="#999999" stroke-dasharray="6,4"/>
+    <text x="850" y="874" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">DeepSeek API</text>
+    <text x="850" y="890" font-size="10" fill="#333333" text-anchor="middle">Chat Completions</text>
+    <text x="850" y="903" font-size="10" fill="#333333" text-anchor="middle">可换 OpenAI 兼容服务</text>
+
+    <rect x="990" y="850" width="220" height="60" rx="6" fill="#ffffff" stroke="#999999" stroke-dasharray="6,4"/>
+    <text x="1100" y="874" font-size="12" font-weight="bold" fill="#1a1a1a" text-anchor="middle">外部 Agent</text>
+    <text x="1100" y="890" font-size="10" fill="#333333" text-anchor="middle">经 /mcp/{instance_id}</text>
+    <text x="1100" y="903" font-size="10" fill="#333333" text-anchor="middle">调用 UE5 实例能力</text>
+  </g>
+
+  <!-- 图例 -->
+  <text x="120" y="962" font-size="10" fill="#e03131">① 玩家对话请求 / SSE 流式回复　② UE5 动态注册 / 热更新 agent·tool　③ LLM Chat Completions 调用　④ 工具调用 HTTP 转发到 UE5 执行　⑤ 外部 Agent 经 MCP 调用 UE5 能力</text>
+</svg>
